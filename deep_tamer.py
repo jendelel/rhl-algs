@@ -53,6 +53,7 @@ from collections import namedtuple
 HumanFeedback = namedtuple('HumanFeedback', ['feedback_time', 'feedback_value'])
 
 import gym
+from gym.wrappers import Monitor
 import argparse
 import random
 import torch
@@ -114,8 +115,8 @@ class MainWindow(QtWidgets.QMainWindow):
                             help='discount factor (default: 0.99)')
         parser.add_argument('--batch_size', type=int, default=10,
                             help='batch_size (default: 32)')
-        parser.add_argument('--learning_rate', type=float, default=0.001,
-                            help='Learning rate (default:0.00025)')
+        parser.add_argument('--learning_rate', type=float, default=0.01,
+                            help='Learning rate (default:0.01)')
         parser.add_argument('--seed', type=int, default=543, metavar='N',
                             help='random seed (default: 543)')
         parser.add_argument('--render', action='store_true',
@@ -128,6 +129,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # env = gym.make('BipedalWalker-v2')
         env = gym.make('CartPole-v0')
+        # env = Monitor(env, "/tmp/tamer_cartpole_videos")
         env = UIRenderer(env, self.viewer)
         env.seed(args.seed)
         torch.manual_seed(args.seed)
@@ -151,29 +153,28 @@ class MainWindow(QtWidgets.QMainWindow):
                     if not self.isVisible():
                         break
                     ep_reward += reward
-                    print("Reward: %d, ep_reward: %d" % (reward, ep_reward))
+                    print("Action: %d, Reward: %d, ep_reward: %d" % (action, reward, ep_reward))
                     if done:
                         break
                 if not self.isVisible():
                         break
         env.close()
 
-    def buttonClicked(self, value):
-        import time
-        self.feedback = HumanFeedback(feedback_time=time.time(), feedback_value=value)
-
-    @QtCore.pyqtSlot(QtGui.QKeyEvent)
-    def keyPressed(self, event):
-        numpad_mod = int(event.modifiers()) & QtCore.Qt.KeypadModifier
-        if event.key() == QtCore.Qt.Key_Minus and numpad_mod:
-            self.buttonClicked(-1)
-        elif event.key() == QtCore.Qt.Key_Plus and numpad_mod:
-            self.buttonClicked(1)
-        else:
-            print(event)
-
     def deep_tamer(self, args, env):
         import time
+        def buttonClicked(value):
+            self.feedback = HumanFeedback(feedback_time=time.time(), feedback_value=value)
+
+        @QtCore.pyqtSlot(QtGui.QKeyEvent)
+        def keyPressed(event):
+            numpad_mod = int(event.modifiers()) & QtCore.Qt.KeypadModifier
+            if (event.key() == QtCore.Qt.Key_Minus and numpad_mod) or event.key() == QtCore.Qt.Key_M:
+                buttonClicked(-1)
+            elif (event.key() == QtCore.Qt.Key_Plus and numpad_mod) or event.key() == QtCore.Qt.Key_P:
+                buttonClicked(1)
+            else:
+                print(event)
+
         LOWER_TIME_BOUND = 0.2
         UPPER_TIME_BOUND = 2.0
         hor = QtWidgets.QHBoxLayout()
@@ -181,7 +182,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if i == 0: continue
             but = QtWidgets.QPushButton()
             but.setText(str(i))
-            but.clicked.connect(lambda: self.buttonClicked(i))
+            but.clicked.connect(lambda: buttonClicked(i))
             hor.addWidget(but)
 
         if self.feedback_widget.layout():
@@ -189,7 +190,7 @@ class MainWindow(QtWidgets.QMainWindow):
             del l
         self.feedback_widget.setLayout(hor)
         print(self.feedback)
-        self.keyPressedSignal.connect(self.keyPressed)
+        self.keyPressedSignal.connect(keyPressed)
         reward_net = RewardNetwork(env.observation_space.shape[0], int(env.action_space.n)).to(device=self.device)
         optimizer = torch.optim.RMSprop(reward_net.parameters(), lr=args.learning_rate)
         SavedAction = namedtuple('SavedAction', ['state', 'action_index', 'start_time', 'end_time'])
@@ -256,11 +257,12 @@ class MainWindow(QtWidgets.QMainWindow):
                         indicies = random.sample(range(len(buffer)), args.batch_size)
                         mini_batch = [buffer[i] for i in indicies]
                         train(mini_batch)
-                    print("Reward: %d, es_reward: %d, ep_reward: %d, esp_reward: %d" % (reward, es_reward, ep_reward, esp_reward))
+                    print("Action: %d, Reward: %d, es_reward: %d, ep_reward: %d, esp_reward: %d" % 
+                                                            (action, reward, es_reward, ep_reward, esp_reward))
                     if done:
-                        if t < 190:
-                            self.feedback = HumanFeedback(feedback_time=time.time(), feedback_value=-1)
-                            processFeedback(savedActions, buffer)
+                        # if t < 190:
+                        #     self.feedback = HumanFeedback(feedback_time=time.time(), feedback_value=-1)
+                        #     processFeedback(savedActions, buffer)
                         break   
                 if not self.isVisible():
                         break
