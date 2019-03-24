@@ -37,10 +37,10 @@ class DeepCoach():
         torch.manual_seed(args.seed)
         self.device = torch.device("cuda" if not args.no_cuda else "cpu") 
 
-        self.setup_ui(window)
+        if window is not None: 
+            self.setup_ui(window)
         self.policy_net = PolicyNet(env.observation_space.shape[0], int(env.action_space.n)).to(device=self.device)
-        self.optimizer = torch.optim.SGD(self.policy_net.parameters(), lr=args.learning_rate)
-        self.replay_buffer = []
+        self.optimizer = torch.optim.RMSprop(self.policy_net.parameters(), lr=args.learning_rate)
         self.feedback = None
     
     def setup_ui(self, window):
@@ -80,54 +80,22 @@ class DeepCoach():
         # print(action_rewards.detach().cpu().numpy(), max_action.item())
         return max_action_prob.item(), max_action.item(), action_probs
 
-    def check_update_net(self, savedActionsWithFeedback, current_action_probs):
+    def update_net(self, savedActionsWithFeedback, current_action_probs):
         if not savedActionsWithFeedback: return
-        print("\ttraining_check")
-        parameters = self.policy_net.named_parameters()
-        e_bar = {name: 0 for name, _ in self.policy_net.named_parameters()}
+        print("training")
+        e_losses = []
         for saf in savedActionsWithFeedback:
             final_feedback = saf.final_feedback
-            e = {name: 0 for name, _ in self.policy_net.named_parameters()}
             for n, sa in enumerate(saf.saved_actions[::-1]):
                 p = sa.prob
                 _, _, action_probs = self.select_action(sa.state)
-                action_prob = action_probs[sa.action]
-                torch.log(action_prob).backward()
-                e = {name: (self.args.eligibility_decay * e[name] + action_prob.detach() / p * param.grad) for name, param in self.policy_net.named_parameters()}
-            e_bar = {name: (e_bar[name] + final_feedback * e[name]) for name, _ in self.policy_net.named_parameters()}
+                e_loss = (self.args.eligibility_decay ** (n)) / p * action_probs[sa.action] * final_feedback
+                e_losses.append(e_loss)
         action_dist = Categorical(current_action_probs)
-        e_bar = {name: (1/(len(savedActionsWithFeedback)) * e_bar[name]) for name, _ in self.policy_net.named_parameters()}
-        for name, param in self.policy_net.named_parameters():
-            param.grad.detach_()
-            param.grad.zero_()
-        action_dist.entropy().backward(retain_graph=True)
-        gradients = {name: (e_bar[name] + self.args.entropy_reg * param.grad) for name, param in self.policy_net.named_parameters()}
-        new_values = {name: param.data + self.args.learning_rate * gradients[name] for name, param in self.policy_net.named_parameters()}
-        return new_values
-
-    def update_net(self, savedActionsWithFeedback, current_action_probs):
-        if not savedActionsWithFeedback: return
-        new_values = self.check_update_net(savedActionsWithFeedback, current_action_probs)
-        # print("training")
-        # e_losses = []
-        # for saf in savedActionsWithFeedback:
-        #     final_feedback = saf.final_feedback
-        #     for n, sa in enumerate(saf.saved_actions[::-1]):
-        #         p = sa.prob
-        #         _, _, action_probs = self.select_action(sa.state)
-        #         e_loss = (self.args.eligibility_decay ** (n-1))/p * action_probs[sa.action] * final_feedback
-        #         e_losses.append(e_loss)
-        # action_dist = Categorical(current_action_probs)
-        # loss =-(self.to_tensor(1/(len(savedActionsWithFeedback))) * torch.stack(e_losses).to(device=self.device).sum() + self.args.entropy_reg * action_dist.entropy())
-        # self.optimizer.zero_grad()
-        # loss.backward()
-        # self.optimizer.step()
-        for name, param in self.policy_net.named_parameters():
-            # print(name)
-            # print(param.data)
-            # print(new_values[name])
-            param.data = new_values[name]
-        # raise ValueError()
+        loss =-(self.to_tensor(1/(len(savedActionsWithFeedback))) * torch.stack(e_losses).to(device=self.device).sum() + self.args.entropy_reg * action_dist.entropy())
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
     
     def processFeedback(self, savedActions, buffer):
         feedback = self.feedback.feedback_value
@@ -138,11 +106,6 @@ class DeepCoach():
             savedActionsWithFeedback = SavedActionsWithFeedback(saved_actions=window, final_feedback=feedback)
             buffer.append(savedActionsWithFeedback)
             self.feedback = None
-
-    # def calc_weight(start_time, end_time, feedback_time):
-        #     # DeepTamer uses f_delay as uniform distribution [0.2, 4]
-        #     # \int_{tf-te}^{tf-ts} f_delay(t) dt
-        #     return (end_time - start_time) # * (4-0.2)
 
     def train(self):
         buffer = []
