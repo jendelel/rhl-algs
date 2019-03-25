@@ -94,7 +94,8 @@ class DeepTamer():
         new_data = [SavedActionWithReward(saved_action=sa, reward=self.feedback.feedback_value)
                     for sa in savedActions 
                     if (feedback_time-sa.start_time) > self.args.tamer_lower_bound and (feedback_time-sa.end_time) < self.args.tamer_upper_bound]
-        self.update_net(new_data)
+        if self.window.trainCheck.isChecked():
+            self.update_net(new_data)
         buffer.extend(new_data)
         self.feedback = None
 
@@ -124,7 +125,7 @@ class DeepTamer():
                     if self.feedback:
                         self.processFeedback(savedActions, buffer)
                     time.sleep(0.1)
-                    if t % 10 == 0 and len(buffer) > self.args.batch_size:
+                    if t % 10 == 0 and len(buffer) > self.args.batch_size and self.window.trainCheck.isChecked():
                         indicies = random.sample(range(len(buffer)), self.args.batch_size)
                         mini_batch = [buffer[i] for i in indicies]
                         self.update_net(mini_batch)

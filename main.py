@@ -1,8 +1,8 @@
 import functools, argparse
 import random_alg
 from ui import MainWindow, create_app
-
-from gym_utils import make_env
+import time
+from gym_utils import make_env, toggle_recording
 
 
 running = False
@@ -20,10 +20,11 @@ def startRl(window):
                             help='random seed (default: 543)')
     alg, args = window.loadAlg(parser)
 
-    env = make_env(args.env, window.viewer, record=False)
+    env = make_env(args.env, window.viewer, alg_name=args.alg, record=window.recordCheck.isChecked())
+    window.recordCheck.stateChanged.connect(functools.partial(toggle_recording, env_object=env))
     print(args)
     env.seed(args.seed)
-
+    window.viewer.start_time = time.time()
     alg.start(window, args, env)
     running = True
 
