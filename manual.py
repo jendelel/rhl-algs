@@ -52,7 +52,7 @@ class ManualControl():
                     self.window.render(self.env)
                     if not self.window.isVisible():
                         break
-                    time.sleep(self.args.render_sleep)
+                    time.sleep(self.window.renderSpin.value())
                     print("Action: %d, Reward: %d, ep_reward: %d" % (action, reward, ep_reward))
                     if done:
                         break

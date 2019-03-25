@@ -62,6 +62,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.trainCheck.setText("Train")
         hor.addWidget(self.trainCheck)
 
+        spinWrapper = QtWidgets.QHBoxLayout()
+        spinLabel = QtWidgets.QLabel()
+        spinLabel.setText("Render sleep:")
+        spinWrapper.addWidget(spinLabel)
+        self.renderSpin = QtWidgets.QDoubleSpinBox()
+        self.renderSpin.setRange(0.0005, 1)
+        self.renderSpin.setSingleStep(0.01)
+        self.renderSpin.setValue(0.05)
+        spinWrapper.addWidget(self.renderSpin)
+        hor.addLayout(spinWrapper)
+
         self.startBut = QtWidgets.QPushButton()
         self.startBut.setText("Start!")
         hor.addWidget(self.startBut)

@@ -14,7 +14,7 @@ def start(window, args, env):
                 action = select_action(state)
                 state, reward, done, _ = env.step(action)
                 window.render(env)
-                time.sleep(args.render_sleep)
+                time.sleep(window.renderSpin.value())
                 if not window.isVisible():
                     break
                 ep_reward += reward

@@ -18,8 +18,6 @@ def startRl(window):
                                     help='Name of Gym environment.')
     parser.add_argument('--seed', type=int, default=543, 
                             help='random seed (default: 543)')
-    parser.add_argument('--render_sleep', type=float, default=0.05, 
-                            help='break to render the image (default: 0.05)')
     alg, args = window.loadAlg(parser)
 
     env = make_env(args.env, window.viewer, alg_name=args.alg, record=window.recordCheck.isChecked())

@@ -124,7 +124,7 @@ class DeepTamer():
                         break
                     if self.feedback:
                         self.processFeedback(savedActions, buffer)
-                    time.sleep(self.args.render_sleep)
+                    time.sleep(self.window.renderSpin.value())
                     if t % 10 == 0 and len(buffer) > self.args.batch_size and self.window.trainCheck.isChecked():
                         indicies = random.sample(range(len(buffer)), self.args.batch_size)
                         mini_batch = [buffer[i] for i in indicies]
