@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Categorical
 import numpy as np
+import utils
 
 HumanFeedback = namedtuple('HumanFeedback', ['feedback_time', 'feedback_value'])
 SavedAction = namedtuple('SavedAction', ['state', 'action_index', 'start_time', 'end_time'])
@@ -22,7 +23,7 @@ def parse_args(parser):
                             help='TAMER Window lower bound')
     parser.add_argument('--tamer_upper_bound', type=float, default=2.0,
                             help='TAMER Window lower bound')
-    parser.add_argument('--no-cuda', action='store_true', default=False,
+    parser.add_argument('--no_cuda', action='store_true', default=False,
                             help='disables CUDA training')
 
 class DeepTamer():
@@ -141,6 +142,7 @@ class DeepTamer():
 
 def start(window, args, env):
     alg = DeepTamer(window, args, env)
+    print("Number of trainable parameters:", utils.count_parameters(alg.reward_net))
     alg.train()
     env.close()
 

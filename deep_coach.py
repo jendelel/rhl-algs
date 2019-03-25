@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Categorical
 import numpy as np
+import utils
 
 HumanFeedback = namedtuple('HumanFeedback', ['feedback_value'])
 SavedAction = namedtuple('SavedAction', ['state', 'action', 'prob'])
@@ -26,7 +27,7 @@ def parse_args(parser):
                             help='Entropy regularization beta')
     parser.add_argument('--feedback_delay_factor', type=int, default=1,
                             help='COACH Feedback delay factor.')
-    parser.add_argument('--no-cuda', action='store_true', default=False,
+    parser.add_argument('--no_cuda', action='store_true', default=False,
                             help='disables CUDA training')
 
 class DeepCoach():
@@ -58,7 +59,7 @@ class DeepCoach():
             if i == 0: continue
             but = QtWidgets.QPushButton()
             but.setText(str(i))
-            but.clicked.connect(lambda: self.buttonClicked(i))
+            but.clicked.connect(lambda bla, def_arg=i: self.buttonClicked(def_arg))
             hor.addWidget(but)
 
         if window.feedback_widget.layout():
@@ -99,13 +100,14 @@ class DeepCoach():
     
     def processFeedback(self, savedActions, buffer):
         feedback = self.feedback.feedback_value
-        if feedback != 0:
+        if feedback is not None and len(savedActions) > 0:
+            print("Feedback: ", feedback)
             window_size = min(len(savedActions), self.args.coach_window_size)
             del savedActions[:-(window_size+self.args.feedback_delay_factor)]
             window = savedActions[:-self.args.feedback_delay_factor] # Copy the list
             savedActionsWithFeedback = SavedActionsWithFeedback(saved_actions=window, final_feedback=feedback)
             buffer.append(savedActionsWithFeedback)
-            self.feedback = None
+        self.feedback = None
 
     def train(self):
         buffer = []
@@ -115,6 +117,7 @@ class DeepCoach():
                 savedActions = []
                 for t in range(1, 10000):  # Don't infinite loop while learning
                     action_prob, action, action_probs = self.select_action(state)
+                    old_state = state
                     state, reward, done, _ = self.env.step(action)
                     ep_reward += reward
                     savedActions.append(SavedAction(state=state, action=action, prob=action_prob))
@@ -123,6 +126,8 @@ class DeepCoach():
                         break
                     if self.feedback:
                         self.processFeedback(savedActions, buffer)
+                        if len(buffer[-1].saved_actions) > 0:
+                            self.update_net([buffer[-1]], self.select_action(old_state)[2])
                     time.sleep(0.1)
                     if len(buffer) >= self.args.batch_size:
                         indicies = random.sample(range(len(buffer)), self.args.batch_size)
@@ -130,7 +135,10 @@ class DeepCoach():
                         self.update_net(mini_batch, action_probs)
                     print("Action: %d, Reward: %d, ep_reward: %d" % (action, reward, ep_reward))
                     if done:
-                        break   
+                        if t <= 190:
+                            self.feedback = HumanFeedback(feedback_value=-1)
+                            self.processFeedback(savedActions, buffer)
+                        break
                 if not self.window.isVisible():
                         break
                 running_reward = 0.05 * ep_reward + (1 - 0.05) * running_reward
@@ -138,21 +146,22 @@ class DeepCoach():
 
 def start(window, args, env):
     alg = DeepCoach(window, args, env)
+    print("Number of trainable parameters:", utils.count_parameters(alg.policy_net))
     alg.train()
     env.close()
 
 class PolicyNet(nn.Module):
     def __init__(self, observation_space, action_space):
         super(PolicyNet, self).__init__()
-        self.hidden1 = nn.Linear(observation_space, 30)
-        self.hidden2 = nn.Linear(30, 30)
-        self.action_probs = nn.Linear(30, action_space)
+        self.hidden1 = nn.Linear(observation_space, 16)
+        # self.hidden2 = nn.Linear(30, 30)
+        self.action_probs = nn.Linear(16, action_space)
 
         self.saved_actions = []
         self.rewards = []
 
     def forward(self, x):
         x = F.relu(self.hidden1(x))
-        x = F.relu(self.hidden2(x))
+        # x = F.relu(self.hidden2(x))
         action_probs = F.softmax(self.action_probs(x), dim=0)
         return action_probs
