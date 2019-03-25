@@ -19,20 +19,26 @@ class MyPygletViewer(QtWidgets.QWidget):
         self.setLayout(self.verLayout)
 
         self.start_time = None
-        # self.setMinimumSize(QtCore.QSize(480, 640))
+        self.episode_count = 0
+        self.reward = 0
+        self.action = 0
+        self.acc_reward = 0
+        self.step_count = 0
+        self.num_pos_feedback = 0
+        self.num_neg_feedback = 0
 
     def imshow(self, img):
         qimg = qimage2ndarray.array2qimage(img, True).scaled(self.img.size())
         self.img.setPixmap(QtGui.QPixmap(qimg))
+        self.update_info()
         self.repaint()
 
-    def update_info(self, action, reward, acc_reward):
-        action_str, time_str = "", ""
-        if isinstance(action, int):
-            action_str = str(action)
+    def update_info(self):
+        time_str = ""
         if self.start_time:
             time_str = seconds_to_text(time.time() - self.start_time)
-        self.infoLabel.setText("Action: {}, Time: {}, Reward: {:.2f}, Acc_reward: {:.2f}".format(action_str, time_str, reward, acc_reward))
+        self.infoLabel.setText("Step: {}, Episode: {}, Action: {}, Time: {}, Reward: {:.2f}, Acc_reward: {:.2f}, pos_feedback: {}, neg_feedback: {}".format(
+                               self.step_count, self.episode_count, self.action, time_str, self.reward, self.acc_reward, self.num_pos_feedback, self.num_neg_feedback))
 
 class MainWindow(QtWidgets.QMainWindow):
     keyPressedSignal = QtCore.pyqtSignal(QtGui.QKeyEvent)
@@ -69,14 +75,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.renderSpin = QtWidgets.QDoubleSpinBox()
         self.renderSpin.setRange(0.0005, 1)
         self.renderSpin.setSingleStep(0.01)
-        self.renderSpin.setValue(0.05)
+        self.renderSpin.setValue(0.02)
         spinWrapper.addWidget(self.renderSpin)
         hor.addLayout(spinWrapper)
 
         self.startBut = QtWidgets.QPushButton()
         self.startBut.setText("Start!")
         hor.addWidget(self.startBut)
-        self.running = False
         ver.addLayout(hor)
 
         # Putting everything together.

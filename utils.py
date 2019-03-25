@@ -11,7 +11,7 @@ def seconds_to_text(secs):
     minutes = (secs - days*86400 - hours*3600)//60
     seconds = int(secs - days*86400 - hours*3600 - minutes*60)
     result = ("{} days, ".format(days) if days else "") + \
-    ("{} hours, ".format(hours) if hours else "") + \
-    ("{} minutes, ".format(minutes) if minutes else "") + \
-    ("{} seconds, ".format(seconds))
+    ("{} h, ".format(hours) if hours else "") + \
+    ("{} m, ".format(minutes) if minutes else "") + \
+    ("{} s".format(seconds))
     return result

@@ -95,6 +95,10 @@ class DeepTamer():
                     for sa in savedActions 
                     if (feedback_time-sa.start_time) > self.args.tamer_lower_bound and (feedback_time-sa.end_time) < self.args.tamer_upper_bound]
         if self.window.trainCheck.isChecked():
+            if self.feedback.feedback_value > 0:
+                self.window.viewer.num_pos_feedback += 1
+            elif self.feedback.feedback_value < 0:
+                self.window.viewer.num_neg_feedback += 1
             self.update_net(new_data)
         buffer.extend(new_data)
         self.feedback = None

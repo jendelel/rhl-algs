@@ -102,6 +102,10 @@ class DeepCoach():
         feedback = self.feedback.feedback_value
         if feedback is not None and len(savedActions) > 0:
             print("Feedback: ", feedback)
+            if feedback > 0:
+                self.window.viewer.num_pos_feedback += 1
+            elif feedback < 0:
+                self.window.viewer.num_neg_feedback += 1
             window_size = min(len(savedActions), self.args.coach_window_size)
             del savedActions[:-(window_size+self.args.feedback_delay_factor)]
             window = savedActions[:-self.args.feedback_delay_factor] # Copy the list

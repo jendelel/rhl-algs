@@ -8,18 +8,19 @@ class UIRenderer(gym.Wrapper):
             raise gym.error.Error("Cannot ui decorate env without rgb_array renderer.")
         self.viewer = viewer
         self.recoding_enabled = False
-        self.acc_reward = 0
 
     def step(self, action):
+        self.viewer.step_count += 1
         res = self.env.step(action)
-        reward = res[1]
-        self.acc_reward += reward
-        self.viewer.update_info(action, reward, self.acc_reward)
+        self.viewer.action = action
+        self.viewer.reward = res[1]
+        self.viewer.acc_reward += self.viewer.reward
         return res
     
     def reset(self, **kwargs):
         self.env.enabled = self.recoding_enabled
-        self.acc_reward = 0
+        self.viewer.acc_reward = 0
+        self.viewer.episode_count += 1
         return self.env.reset(**kwargs)
 
     def render(self, mode='human', **kwargs): 
