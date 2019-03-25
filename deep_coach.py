@@ -128,7 +128,7 @@ class DeepCoach():
                         self.processFeedback(savedActions, buffer)
                         if len(buffer[-1].saved_actions) > 0 and self.window.trainCheck.isChecked():
                             self.update_net([buffer[-1]], self.select_action(old_state)[2])
-                    time.sleep(0.1)
+                    time.sleep(self.args.render_sleep)
                     if len(buffer) >= self.args.batch_size and self.window.trainCheck.isChecked():
                         indicies = random.sample(range(len(buffer)), self.args.batch_size)
                         mini_batch = [buffer[i] for i in indicies]
