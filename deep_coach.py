@@ -11,7 +11,7 @@ import numpy as np
 import utils
 
 HumanFeedback = namedtuple('HumanFeedback', ['feedback_value'])
-SavedAction = namedtuple('SavedAction', ['state', 'action', 'prob'])
+SavedAction = namedtuple('SavedAction', ['state', 'action', 'logprob'])
 SavedActionsWithFeedback = namedtuple('SavedActionsWithFeedback', ['saved_actions', 'final_feedback'])
 
 def parse_args(parser):
@@ -29,7 +29,7 @@ def parse_args(parser):
                             help='COACH Feedback delay factor.')
     parser.add_argument('--ppo_eps', type=float, default=0.2,
                             help='PPO-like clipping of the loss. Negative value turns the ppo clipping off.')
-    parser.add_argument('--no_cuda', action='store_true', default=False,
+    parser.add_argument('--no_cuda', action='store_true', default=True,
                             help='disables CUDA training')
 
 class DeepCoach():
@@ -42,7 +42,8 @@ class DeepCoach():
 
         if window is not None: 
             self.setup_ui(window)
-        self.policy_net = PolicyNet(env.observation_space.shape[0], int(env.action_space.n)).to(device=self.device)
+        PolicyNet = CategoricalPolicyNet if hasattr(self.env.action_space, 'n') else GaussianPolicyNet
+        self.policy_net = PolicyNet(env.observation_space.shape[0], env.action_space).to(device=self.device)
         self.optimizer = torch.optim.RMSprop(self.policy_net.parameters(), lr=args.learning_rate)
         self.feedback = None
     
@@ -78,21 +79,19 @@ class DeepCoach():
 
     def select_action(self, state):
         state = torch.from_numpy(state).to(device=self.device).float()
-        action_probs = self.policy_net(state)
-        max_action_prob, max_action = torch.max(action_probs, dim=0)
-        # print(action_rewards.detach().cpu().numpy(), max_action.item())
-        return max_action_prob.item(), max_action.item(), action_probs
+        action, logprob, entropy = self.policy_net(state)
+        return logprob, action.detach().cpu().numpy(), entropy
 
-    def update_net(self, savedActionsWithFeedback, current_action_probs):
+    def update_net(self, savedActionsWithFeedback, current_entropy):
         if not savedActionsWithFeedback: return
         print("training")
         e_losses = []
         for saf in savedActionsWithFeedback:
             final_feedback = saf.final_feedback
             for n, sa in enumerate(saf.saved_actions[::-1]):
-                p = sa.prob
-                _, _, action_probs = self.select_action(sa.state)
-                probs_ratio = action_probs[sa.action] / p
+                log_p_old = torch.tensor(sa.logprob).to(self.device)
+                log_prob, _, _ = self.select_action(sa.state)
+                probs_ratio = (log_prob - log_p_old).exp()
                 if self.args.ppo_eps > 0:
                     surr1 = final_feedback * probs_ratio
                     surr2 = torch.clamp(probs_ratio, 1.0 - self.args.ppo_eps, 1.0 + self.args.ppo_eps) * final_feedback
@@ -100,9 +99,9 @@ class DeepCoach():
                 else:
                     loss_term = probs_ratio * final_feedback
                 e_loss = (self.args.eligibility_decay ** (n)) * loss_term
+                e_loss = torch.sum(e_loss, dim=0) # Sum the loss across all actions.
                 e_losses.append(e_loss)
-        action_dist = Categorical(current_action_probs)
-        loss =-(self.to_tensor(1/(len(savedActionsWithFeedback))) * torch.stack(e_losses).to(device=self.device).sum() + self.args.entropy_reg * action_dist.entropy())
+        loss =-(self.to_tensor(1/(len(savedActionsWithFeedback))) * torch.stack(e_losses).to(device=self.device).sum() + torch.sum(self.args.entropy_reg * current_entropy, dim=0))
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
@@ -129,11 +128,11 @@ class DeepCoach():
                 state, ep_reward = self.env.reset(), 0
                 savedActions = []
                 for t in range(1, 10000):  # Don't infinite loop while learning
-                    action_prob, action, action_probs = self.select_action(state)
+                    logprob, action, entropy = self.select_action(state)
                     old_state = state
                     state, reward, done, _ = self.env.step(action)
                     ep_reward += reward
-                    savedActions.append(SavedAction(state=state, action=action, prob=action_prob))
+                    savedActions.append(SavedAction(state=state, action=action, logprob=logprob.detach().cpu().numpy()))
                     self.window.render(self.env)
                     if not self.window.isVisible():
                         break
@@ -147,8 +146,8 @@ class DeepCoach():
                     if len(buffer) >= self.args.batch_size and self.window.trainCheck.isChecked():
                         indicies = random.sample(range(len(buffer)), self.args.batch_size)
                         mini_batch = [buffer[i] for i in indicies]
-                        self.update_net(mini_batch, action_probs)
-                    print("Action: %d, Reward: %d, ep_reward: %d" % (action, reward, ep_reward))
+                        self.update_net(mini_batch, entropy)
+                    print("Action: {}, Reward: {:.2f}, ep_reward: {:.2f}".format(action, reward, ep_reward))
                     if done:
                         break
                 if not self.window.isVisible():
@@ -162,18 +161,36 @@ def start(window, args, env):
     alg.train()
     env.close()
 
-class PolicyNet(nn.Module):
-    def __init__(self, observation_space, action_space):
-        super(PolicyNet, self).__init__()
-        self.hidden1 = nn.Linear(observation_space, 16)
+class CategoricalPolicyNet(nn.Module):
+    def __init__(self, observation_space_shape, action_space):
+        super(CategoricalPolicyNet, self).__init__()
+        action_dim = action_space.n
+        self.hidden1 = nn.Linear(observation_space_shape, 16)
         # self.hidden2 = nn.Linear(30, 30)
-        self.action_probs = nn.Linear(16, action_space)
-
-        self.saved_actions = []
-        self.rewards = []
+        self.action_probs = nn.Linear(16, action_dim)
 
     def forward(self, x):
-        x = F.relu(self.hidden1(x))
+        x = F.tanh(self.hidden1(x))
         # x = F.relu(self.hidden2(x))
-        action_probs = F.softmax(self.action_probs(x), dim=0)
-        return action_probs
+        logits = self.action_probs(x)
+        action = torch.argmax(logits, dim=-1)
+        distribution = torch.distributions.Categorical(logits=logits)
+        return action, distribution.log_prob(action), distribution.entropy()
+
+class GaussianPolicyNet(nn.Module):
+    def __init__(self, observation_space_shape, action_space):
+        super(GaussianPolicyNet, self).__init__()
+        action_dim = action_space.shape[-1]
+        self.hidden1 = nn.Linear(observation_space_shape, 16)
+        # self.hidden2 = nn.Linear(30, 30)
+        self.mu_head = nn.Linear(16, action_dim)
+        self.log_std = torch.nn.parameter.Parameter(-0.5*torch.ones(action_dim))
+
+    def forward(self, x):
+        x = F.tanh(self.hidden1(x))
+        # x = F.relu(self.hidden2(x))
+        mean = self.mu_head(x)
+        std = self.log_std.expand_as(mean).exp()
+        distribution = torch.distributions.Normal(mean, std)
+        action = torch.normal(mean, std)
+        return action, distribution.log_prob(action), distribution.entropy()

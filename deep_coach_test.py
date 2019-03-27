@@ -28,8 +28,8 @@ class TestDeepCoachLoss(unittest.TestCase):
         def gen_state_action_prob():
             action = random.randint(0, self.env.action_space.n-1)
             state = np.random.uniform(size=self.env.observation_space.shape)
-            p = random.random()
-            return SavedAction(state=state, action=action, prob=p)
+            logp = np.log(random.random())
+            return SavedAction(state=state, action=action, logprob=logp)
         
         def generate_window():
             final_feedback = random.randint(0, 1)
@@ -41,8 +41,7 @@ class TestDeepCoachLoss(unittest.TestCase):
 
     def test_loss_against_pseudocode(self):
         savedActionsWithFeedback = self.get_fake_input()
-        _, _, current_action_probs = self.deep_coach.select_action(savedActionsWithFeedback[-1].saved_actions[-1].state)
-        print(current_action_probs)
+        _, _, entropy = self.deep_coach.select_action(savedActionsWithFeedback[-1].saved_actions[-1].state)
 
         # Psuedocode: 
         e_bar = {name: 0 for name, _ in self.deep_coach.policy_net.named_parameters()}
@@ -51,20 +50,19 @@ class TestDeepCoachLoss(unittest.TestCase):
             e = {name: 0 for name, _ in self.deep_coach.policy_net.named_parameters()}
             for sa in saf.saved_actions:
                 self.deep_coach.optimizer.zero_grad()
-                p = sa.prob
-                _, _, action_probs = self.deep_coach.select_action(sa.state)
-                action_prob = action_probs[sa.action]
+                p = np.exp(sa.logprob)
+                logprob, _, action_probs = self.deep_coach.select_action(sa.state)
+                action_prob = logprob.exp()
                 torch.log(action_prob).backward()
                 e = {name: (self.args.eligibility_decay * e[name] + action_prob.detach() / p * param.grad.detach().clone()) for name, param in self.deep_coach.policy_net.named_parameters()}
             e_bar = {name: (e_bar[name] + final_feedback * e[name]) for name, _ in self.deep_coach.policy_net.named_parameters()}
-        action_dist = torch.distributions.Categorical(current_action_probs)
         e_bar = {name: (1/(len(savedActionsWithFeedback)) * e_bar[name]) for name, _ in self.deep_coach.policy_net.named_parameters()}
         self.deep_coach.optimizer.zero_grad()
-        action_dist.entropy().backward(retain_graph=True)
+        entropy.backward(retain_graph=True)
         gradients = {name: (e_bar[name] + self.args.entropy_reg * param.grad.detach().clone()) for name, param in self.deep_coach.policy_net.named_parameters()}
         new_values = {name: param.data.detach().clone() + self.args.learning_rate * gradients[name] for name, param in self.deep_coach.policy_net.named_parameters()}
         
-        self.deep_coach.update_net(savedActionsWithFeedback, current_action_probs)
+        self.deep_coach.update_net(savedActionsWithFeedback, entropy)
         
         for name, param in self.deep_coach.policy_net.named_parameters():
             self.assertTrue(torch.allclose(param.data, new_values[name]), msg="Variable: %s does not equal the value from the pseudocode!" % name)
