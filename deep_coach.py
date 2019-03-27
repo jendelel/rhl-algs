@@ -17,7 +17,7 @@ SavedActionsWithFeedback = namedtuple('SavedActionsWithFeedback', ['saved_action
 def parse_args(parser):
     parser.add_argument('--batch_size', type=int, default=16,
                         help='batch_size (default: 16)')
-    parser.add_argument('--learning_rate', type=float, default=0.00025,
+    parser.add_argument('--learning_rate', type=float, default=0.001,
                         help='Learning rate (default:0.00025)')
     parser.add_argument('--eligibility_decay', type=float, default=0.35,
                         help='Learning rate (default:0.01)')
@@ -142,6 +142,8 @@ class DeepCoach():
                         if len(buffer[-1].saved_actions) > 0 and self.window.trainCheck.isChecked():
                             self.update_net([buffer[-1]], self.select_action(old_state)[2])
                     time.sleep(self.window.renderSpin.value())
+                    if len(buffer) > 50:
+                        del buffer[:10]
                     if len(buffer) >= self.args.batch_size and self.window.trainCheck.isChecked():
                         indicies = random.sample(range(len(buffer)), self.args.batch_size)
                         mini_batch = [buffer[i] for i in indicies]
