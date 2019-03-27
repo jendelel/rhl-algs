@@ -10,6 +10,7 @@ class TestDeepCoachLoss(unittest.TestCase):
         args = {
             'batch_size':3, 
             'seed':42,
+            'ppo_eps':-1,
             'no_cuda': True, 
             'learning_rate':0.5,
             'coach_window_size': 10,

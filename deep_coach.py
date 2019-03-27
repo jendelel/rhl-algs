@@ -27,6 +27,8 @@ def parse_args(parser):
                             help='Entropy regularization beta')
     parser.add_argument('--feedback_delay_factor', type=int, default=1,
                             help='COACH Feedback delay factor.')
+    parser.add_argument('--ppo_eps', type=float, default=0.2,
+                            help='PPO-like clipping of the loss. Negative value turns the ppo clipping off.')
     parser.add_argument('--no_cuda', action='store_true', default=False,
                             help='disables CUDA training')
 
@@ -90,7 +92,14 @@ class DeepCoach():
             for n, sa in enumerate(saf.saved_actions[::-1]):
                 p = sa.prob
                 _, _, action_probs = self.select_action(sa.state)
-                e_loss = (self.args.eligibility_decay ** (n)) / p * action_probs[sa.action] * final_feedback
+                probs_ratio = action_probs[sa.action] / p
+                if self.args.ppo_eps > 0:
+                    surr1 = final_feedback * probs_ratio
+                    surr2 = torch.clamp(probs_ratio, 1.0 - self.args.ppo_eps, 1.0 + self.args.ppo_eps) * final_feedback
+                    loss_term = torch.min(surr1, surr2)
+                else:
+                    loss_term = probs_ratio * final_feedback
+                e_loss = (self.args.eligibility_decay ** (n)) * loss_term
                 e_losses.append(e_loss)
         action_dist = Categorical(current_action_probs)
         loss =-(self.to_tensor(1/(len(savedActionsWithFeedback))) * torch.stack(e_losses).to(device=self.device).sum() + self.args.entropy_reg * action_dist.entropy())
