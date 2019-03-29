@@ -93,6 +93,8 @@ class MainWindow(QtWidgets.QMainWindow):
     
     def render(self, env):
         env.render('human')
+    
+    def processEvents(self):
         QtCore.QCoreApplication.processEvents(QtCore.QEventLoop.AllEvents)
 
     def loadAlg(self, args_parser):
