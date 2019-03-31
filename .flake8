@@ -1,0 +1,16 @@
+[flake8]
+#ignore = D203
+exclude =
+    .svn,
+    CVS,
+    .bzr,
+    .hg,
+    .git,
+    __pycache__,
+    .tox,
+    .eggs,
+    *.egg,
+    .ipynb_checkpoints,
+    # virtual env
+    venv*,
+max-line-length = 120

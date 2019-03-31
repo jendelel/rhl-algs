@@ -1,15 +1,17 @@
-from PyQt5 import QtWidgets, QtCore, QtGui, QtOpenGL
+from PyQt5 import QtWidgets, QtCore, QtGui
 import qimage2ndarray
 from utils import seconds_to_text
+import time
+import sys
 
-import sys, time
 
 class MyPygletViewer(QtWidgets.QWidget):
+
     def __init__(self, parent=None):
         QtWidgets.QWidget.__init__(self, parent)
         self.verLayout = QtWidgets.QVBoxLayout()
         self.img = QtWidgets.QLabel()
-        self.img.setMinimumSize(1,1)
+        self.img.setMinimumSize(1, 1)
         self.img.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.MinimumExpanding)
         self.infoLabel = QtWidgets.QLabel()
         self.infoLabel.setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Minimum)
@@ -37,11 +39,16 @@ class MyPygletViewer(QtWidgets.QWidget):
         time_str = ""
         if self.start_time:
             time_str = seconds_to_text(time.time() - self.start_time)
-        self.infoLabel.setText("Step: {}, Episode: {}, Action: {}, Time: {}, Reward: {:.2f}, Acc_reward: {:.2f}, pos_feedback: {}, neg_feedback: {}".format(
-                               self.step_count, self.episode_count, self.action, time_str, self.reward, self.acc_reward, self.num_pos_feedback, self.num_neg_feedback))
+        self.infoLabel.setText(
+                "Step: {}, Episode: {}, Action: {}, Time: {}, Reward: {:.2f}, "
+                "Acc_reward: {:.2f}, pos_feedback: {}, neg_feedback: {}"
+                .format(self.step_count, self.episode_count, self.action, time_str, self.reward, self.acc_reward,
+                        self.num_pos_feedback, self.num_neg_feedback))
+
 
 class MainWindow(QtWidgets.QMainWindow):
     keyPressedSignal = QtCore.pyqtSignal(QtGui.QKeyEvent)
+
     def __init__(self):
         QtWidgets.QMainWindow.__init__(self)
 
@@ -62,7 +69,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.recordCheck.setChecked(False)
         self.recordCheck.setText("Record")
         hor.addWidget(self.recordCheck)
-        
+
         self.trainCheck = QtWidgets.QCheckBox()
         self.trainCheck.setChecked(True)
         self.trainCheck.setText("Train")
@@ -89,11 +96,11 @@ class MainWindow(QtWidgets.QMainWindow):
         centralWidget.setLayout(ver)
         self.setCentralWidget(centralWidget)
         self.resize(QtWidgets.QDesktopWidget().availableGeometry(self).size() * 0.7)
-        self.bringToFront() # Also sets to be always on top.
-    
+        self.bringToFront()  # Also sets to be always on top.
+
     def render(self, env):
         env.render('human')
-    
+
     def processEvents(self):
         QtCore.QCoreApplication.processEvents(QtCore.QEventLoop.AllEvents)
 
@@ -114,10 +121,11 @@ class MainWindow(QtWidgets.QMainWindow):
             event.ignore()
 
     def bringToFront(self):
-        self.setWindowState( (self.windowState() & ~QtCore.Qt.WindowMinimized) | QtCore.Qt.WindowActive)
+        self.setWindowState((self.windowState() & ~QtCore.Qt.WindowMinimized) | QtCore.Qt.WindowActive)
         self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
         self.raise_()  # for MacOS
-        self.activateWindow() #  for Windows
+        self.activateWindow()  # for Windows
+
 
 def create_app():
     return QtWidgets.QApplication(sys.argv)
