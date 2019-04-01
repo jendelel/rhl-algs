@@ -1,6 +1,6 @@
 from PyQt5 import QtWidgets, QtCore, QtGui
 import qimage2ndarray
-from utils import seconds_to_text
+from utils.utils import seconds_to_text
 import time
 import sys
 

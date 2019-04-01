@@ -5,7 +5,7 @@ import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import utils
+from utils import utils
 
 HumanFeedback = namedtuple('HumanFeedback', ['feedback_time', 'feedback_value'])
 SavedAction = namedtuple('SavedAction', ['state', 'action_index', 'start_time', 'end_time'])

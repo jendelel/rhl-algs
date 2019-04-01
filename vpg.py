@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch.distributions import Categorical, Normal
 import numpy as np
 import scipy.signal
-import utils
+from utils import utils, logx
 
 
 def parse_args(parser):
@@ -60,6 +60,7 @@ class VPG():
         self.device = torch.device("cuda" if not args.no_cuda else "cpu")
         self.render_enabled = True
         self.renderSpin = None
+        self.logger = logx.EpochLogger()
 
         if window is not None:
             self.setup_ui(window)
@@ -124,10 +125,20 @@ class VPG():
             v_loss.backward()
             self.optimizer_V.step()
 
-        # TODO: Log changes
+        _, logp, _, v = self.actor_critic(obs, act)
+        pi_loss_new = -(logp * adv).mean()
+        v_loss_new = F.mse_loss(v, ret)
+        kl = (logp_old - logp).mean()
+        self.logger.store(
+                LossPi=pi_loss,
+                LossV=v_loss_old,
+                KL=kl,
+                Entropy=entropy_est,
+                DeltaLossPi=(pi_loss_new - pi_loss),
+                DeltaLossV=(v_loss_old - v_loss_old))
 
     def train(self):
-        # TODO: Implement a logger
+        self.logger.save_config({"args:": self.args})
         buffer = VPGBuffer(
                 obs_dim=self.env.unwrapped.observation_space.shape,
                 act_dim=self.env.unwrapped.action_space.shape,
@@ -138,10 +149,11 @@ class VPG():
         var_counts = tuple(
                 utils.count_parameters(module)
                 for module in [self.actor_critic.policy, self.actor_critic.value_function])
-        # logger.log('\nNumber of parameters: \t pi: %d, \t v: %d\n'%var_counts)
+        self.logger.log('\nNumber of parameters: \t pi: %d, \t v: %d\n' % var_counts)
 
+        start_time = time.time()
         obs, reward, done, episode_ret, episode_len = self.env.reset(), 0, False, 0, 0
-        for epoch in range(1, self.args.epochs):
+        for epoch in range(0, self.args.epochs):
             # Set the network in eval mode (e.g. Dropout, BatchNorm etc.)
             self.actor_critic.eval()
             for t in range(self.args.max_episode_len):
@@ -149,7 +161,7 @@ class VPG():
 
                 # Save and log
                 buffer.store(obs, action.detach().cpu().numpy(), reward, v_t.item(), logp_t.detach().cpu().numpy())
-                # TODO: log
+                self.logger.store(VVals=v_t)
 
                 obs, reward, done, _ = self.env.step(action.detach().cpu().numpy()[0])
                 episode_ret += reward
@@ -175,16 +187,29 @@ class VPG():
                         self.update_net(buffer.get())
                         self.actor_critic.eval()
                     if terminal:
-                        # TODO: Logging
-                        pass
+                        self.logger.store(EpRet=episode_ret, EpLen=episode_len)
                     obs, reward, done, episode_ret, episode_len = self.env.reset(), 0, False, 0, 0
                     break
 
             if (epoch % self.args.save_freq == 0) or (epoch == self.args.epochs - 1):
-                # TODO: Save model
+                self.logger.save_state({'env': self.env.unwrapped}, self.actor_critic, None)
                 pass
 
-            # TODO: Display logged stats
+            # Log info about epoch
+            self.logger.log_tabular('Epoch', epoch)
+            self.logger.log_tabular('EpRet', with_min_and_max=True)
+            self.logger.log_tabular('EpLen', average_only=True)
+            self.logger.log_tabular('VVals', with_min_and_max=True)
+            # self.logger.log_tabular('TotalEnvInteracts', (epoch+1)*steps_per_epoch)
+            if epoch % self.args.batch_size == 0:
+                self.logger.log_tabular('LossPi', average_only=True)
+                self.logger.log_tabular('LossV', average_only=True)
+                self.logger.log_tabular('DeltaLossPi', average_only=True)
+                self.logger.log_tabular('DeltaLossV', average_only=True)
+                self.logger.log_tabular('Entropy', average_only=True)
+                self.logger.log_tabular('KL', average_only=True)
+            self.logger.log_tabular('Time', time.time()-start_time)
+            self.logger.dump_tabular()
 
     def eval(self):
         # Final evaluation
