@@ -104,7 +104,7 @@ class VPG():
 
     def update_net(self, buffer_minibatch):
         obs, act, adv, ret, logp_old = [torch.Tensor(x).to(self.device) for x in buffer_minibatch]
-        _, logp, _ = self.select_action(obs, act)
+        _, logp, _ = self.select_action(obs, action_taken=act)
         # Estimate the entropy E[-logp]
         entropy_est = (-logp).mean()
 
@@ -190,7 +190,7 @@ class VPG():
         # Final evaluation
         print("Eval")
         episode_reward = 0
-        while True:
+        for t in range(10):
             state, done = self.env.reset(), False
             while not done:
                 action = self.actor_critic.policy.eval(torch.Tensor(state).to(self.device)).detach().cpu().numpy()
@@ -348,7 +348,7 @@ class CategoricalPolicyNet(nn.Module):
         pi = policy.sample()
         logp_pi = policy.log_prob(pi).squeeze()
         if action_taken is not None:
-            logp = policy.log_prob(pi).squeeze()
+            logp = policy.log_prob(action_taken).squeeze()
         else:
             logp = None
         return pi, logp, logp_pi
