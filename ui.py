@@ -39,11 +39,10 @@ class MyPygletViewer(QtWidgets.QWidget):
         time_str = ""
         if self.start_time:
             time_str = seconds_to_text(time.time() - self.start_time)
-        self.infoLabel.setText(
-                "Step: {}, Episode: {}, Action: {}, Time: {}, Reward: {:.2f}, "
-                "Acc_reward: {:.2f}, pos_feedback: {}, neg_feedback: {}"
-                .format(self.step_count, self.episode_count, self.action, time_str, self.reward, self.acc_reward,
-                        self.num_pos_feedback, self.num_neg_feedback))
+        self.infoLabel.setText("Step: {}, Episode: {}, Action: {}, Time: {}, Reward: {:.2f}, "
+                               "Acc_reward: {:.2f}, pos_feedback: {}, neg_feedback: {}".format(
+                                       self.step_count, self.episode_count, self.action, time_str, self.reward,
+                                       self.acc_reward, self.num_pos_feedback, self.num_neg_feedback))
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -99,6 +98,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.bringToFront()  # Also sets to be always on top.
 
     def render(self, env):
+        QtCore.QCoreApplication.processEvents(QtCore.QEventLoop.AllEvents)
         env.render('human')
 
     def processEvents(self):

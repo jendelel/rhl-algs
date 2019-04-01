@@ -13,19 +13,16 @@ def parse_args(parser):
     parser.add_argument(
             '--epochs',
             type=int,
-            default=50,
-            help=' Number of epochs of interaction (equivalent to'
-            'number of policy updates) to perform. default:50')
+            default=200,
+            help='Number of epochs of interaction (equivalent to'
+            'number of policy updates) to perform. default:200')
     parser.add_argument(
-            '--steps_per_epoch',
-            type=int,
-            default=1000,
-            help='Number of steps of interaction (state-action pairs)'
-            'for the agent and the environment in each epoch.'
-            '(default: 1000)')
-    parser.add_argument('--lr_pi', type=float, default=3e-4, help='Learning rate for policy optimizer. (default:3e-4)')
+            '--eval_epochs', type=int, default=10, help='Number of epochs to render for evaluation. default:200')
     parser.add_argument(
-            '--lr_V', type=float, default=1e-3, help='Learning rate for value function optimizer. (default:1e-3)')
+            '--batch_size', type=int, default=10, help='Batch size (how many episodes per batch). default: 10')
+    parser.add_argument('--lr_pi', type=float, default=0.05, help='Learning rate for policy optimizer. (default:0.05)')
+    parser.add_argument(
+            '--lr_V', type=float, default=0.05, help='Learning rate for value function optimizer. (default:0.05)')
     parser.add_argument(
             '--train_v_iters',
             type=int,
@@ -41,7 +38,7 @@ def parse_args(parser):
     parser.add_argument(
             '--max_episode_len',
             type=int,
-            default=1000,
+            default=500,
             help='Maximum length of trajectory / episode / rollout. default: 1000')
     parser.add_argument(
             '--save_freq',
@@ -134,7 +131,7 @@ class VPG():
         buffer = VPGBuffer(
                 obs_dim=self.env.unwrapped.observation_space.shape,
                 act_dim=self.env.unwrapped.action_space.shape,
-                size=self.args.steps_per_epoch,
+                size=(self.args.batch_size + 1) * self.args.max_episode_len,
                 gamma=self.args.gae_gamma,
                 lam=self.args.gae_lambda)
 
@@ -147,7 +144,7 @@ class VPG():
         for epoch in range(1, self.args.epochs):
             # Set the network in eval mode (e.g. Dropout, BatchNorm etc.)
             self.actor_critic.eval()
-            for t in range(self.args.steps_per_epoch):
+            for t in range(self.args.max_episode_len):
                 action, _, logp_t, v_t = self.actor_critic(torch.Tensor(obs).unsqueeze(dim=0).to(self.device))
 
                 # Save and log
@@ -166,23 +163,26 @@ class VPG():
                     return
 
                 terminal = done or (episode_len == self.args.max_episode_len)
-                if terminal or (t == self.args.steps_per_epoch - 1):
+                if terminal:
                     if not terminal:
                         print('Warning: trajectory cut off by epoch at %d steps.' % episode_len)
                     last_val = reward if done else self.actor_critic.value_function(
                             torch.Tensor(obs).to(self.device).unsqueeze(dim=0)).item()
                     buffer.finish_path(last_val=last_val)
+
+                    if epoch % self.args.batch_size == 0:
+                        self.actor_critic.train()  # Switch module to training mode
+                        self.update_net(buffer.get())
+                        self.actor_critic.eval()
                     if terminal:
                         # TODO: Logging
                         pass
                     obs, reward, done, episode_ret, episode_len = self.env.reset(), 0, False, 0, 0
+                    break
 
             if (epoch % self.args.save_freq == 0) or (epoch == self.args.epochs - 1):
                 # TODO: Save model
                 pass
-
-            self.actor_critic.train()  # Switch module to training mode
-            self.update_net(buffer.get())
 
             # TODO: Display logged stats
 
@@ -190,19 +190,20 @@ class VPG():
         # Final evaluation
         print("Eval")
         episode_reward = 0
-        for t in range(10):
+        for t in range(self.args.eval_epochs):
             state, done = self.env.reset(), False
             while not done:
                 action = self.actor_critic.policy.eval(torch.Tensor(state).to(self.device)).detach().cpu().numpy()
 
                 # Choose greedy action this time
-                state, reward, done, _ = self.env.step(action) 
+                state, reward, done, _ = self.env.step(action)
                 episode_reward += reward
                 if self.render_enabled:
                     self.window.render(self.env)
                     time.sleep(self.window.renderSpin.value())
                 if not self.window.isVisible():
                     return
+
 
 def start(window, args, env):
     alg = VPG(window, args, env)
@@ -281,14 +282,18 @@ class VPGBuffer:
         the buffer, with advantages appropriately normalized (shifted to have
         mean zero and std one). Also, resets some pointers in the buffer.
         """
-        assert self.ptr == self.max_size  # buffer has to be full before you can get
+        # assert self.ptr == self.max_size  # buffer has to be full before you can get
+        buffer_slice = slice(0, self.ptr)
         self.ptr, self.path_start_idx = 0, 0
         # the next two lines implement the advantage normalization trick
         # adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
-        adv_mean, adv_std = np.mean(self.adv_buf), np.std(self.adv_buf)
-        self.adv_buf = (self.adv_buf - adv_mean) / (adv_std + 1e-5)
+        adv_mean, adv_std = np.mean(self.adv_buf[buffer_slice]), np.std(self.adv_buf[buffer_slice])
+        self.adv_buf[buffer_slice] = (self.adv_buf[buffer_slice] - adv_mean) / (adv_std + 1e-5)
         # TODO: Consider returning a dictionary.
-        return [self.obs_buf, self.act_buf, self.adv_buf, self.ret_buf, self.logp_buf]
+        return [
+                self.obs_buf[buffer_slice], self.act_buf[buffer_slice], self.adv_buf[buffer_slice],
+                self.ret_buf[buffer_slice], self.logp_buf[buffer_slice]
+        ]
 
     def _combined_shape(self, length, shape=None):
         if shape is None:
