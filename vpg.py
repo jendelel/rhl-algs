@@ -29,7 +29,7 @@ def parse_args(parser):
     parser.add_argument(
             '--train_v_iters',
             type=int,
-            default=80,
+            default=1,
             help='Number of gradient descent steps to take on value function per epoch.(default:80)')
     parser.add_argument(
             "--gae_lambda",
@@ -88,7 +88,7 @@ class VPG():
         self.renderSpin = QtWidgets.QSpinBox()
         self.renderSpin.setRange(1, 1000)
         self.renderSpin.setSingleStep(5)
-        self.renderSpin.setValue(10)
+        self.renderSpin.setValue(100)
         renderCheck = QtWidgets.QCheckBox()
         renderCheck.setChecked(True)
         renderCheck.stateChanged.connect(checkedChanged)
@@ -166,10 +166,9 @@ class VPG():
                     return
 
                 terminal = done or (episode_len == self.args.max_episode_len)
-                if terminal or (t == self.args.max_episode_len - 1):
+                if terminal or (t == self.args.steps_per_epoch - 1):
                     if not terminal:
                         print('Warning: trajectory cut off by epoch at %d steps.' % episode_len)
-                    print(obs)
                     last_val = reward if done else self.actor_critic.value_function(
                             torch.Tensor(obs).to(self.device).unsqueeze(dim=0)).item()
                     buffer.finish_path(last_val=last_val)
@@ -187,11 +186,29 @@ class VPG():
 
             # TODO: Display logged stats
 
+    def eval(self):
+        # Final evaluation
+        print("Eval")
+        episode_reward = 0
+        while True:
+            state, done = self.env.reset(), False
+            while not done:
+                action = self.actor_critic.policy.eval(torch.Tensor(state).to(self.device)).detach().cpu().numpy()
+
+                # Choose greedy action this time
+                state, reward, done, _ = self.env.step(action) 
+                episode_reward += reward
+                if self.render_enabled:
+                    self.window.render(self.env)
+                    time.sleep(self.window.renderSpin.value())
+                if not self.window.isVisible():
+                    return
 
 def start(window, args, env):
     alg = VPG(window, args, env)
     print("Number of trainable parameters:", utils.count_parameters(alg.actor_critic))
     alg.train()
+    alg.eval()
     print("Done")
     env.close()
 
@@ -254,6 +271,8 @@ class VPGBuffer:
         # the next line computes rewards-to-go, to be targets for the value function
         self.ret_buf[path_slice] = self._discount_cumsum(rews, self.gamma)[:-1]
 
+        # self.adv_buf[path_slice] = self.ret_buf[path_slice] - self.val_buf[path_slice]
+
         self.path_start_idx = self.ptr
 
     def get(self):
@@ -266,7 +285,7 @@ class VPGBuffer:
         self.ptr, self.path_start_idx = 0, 0
         # the next two lines implement the advantage normalization trick
         # adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
-        adv_mean, adv_std = np.mean(self.adv_buf), np.std(self.act_buf)
+        adv_mean, adv_std = np.mean(self.adv_buf), np.std(self.adv_buf)
         self.adv_buf = (self.adv_buf - adv_mean) / (adv_std + 1e-5)
         # TODO: Consider returning a dictionary.
         return [self.obs_buf, self.act_buf, self.adv_buf, self.ret_buf, self.logp_buf]
@@ -334,6 +353,10 @@ class CategoricalPolicyNet(nn.Module):
             logp = None
         return pi, logp, logp_pi
 
+    def eval(self, x):
+        logits = self.logits(x)
+        return torch.argmax(logits, dim=-1)
+
 
 class GaussianPolicyNet(nn.Module):
 
@@ -358,6 +381,9 @@ class GaussianPolicyNet(nn.Module):
             logp = None
 
         return pi, logp, logp_pi
+
+    def eval(self, x):
+        return self.mu(x)
 
 
 class ActorCritic(nn.Module):
