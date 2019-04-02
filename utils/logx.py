@@ -98,7 +98,6 @@ class Logger:
         config vars as a dict. This will serialize the config to JSON, while
         handling anything which can't be serialized in a graceful way (writing
         as informative a string as possible).
-
         Example use:
 
         .. code-block:: python

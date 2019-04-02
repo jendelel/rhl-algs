@@ -20,7 +20,8 @@ def parse_args(parser):
             '--eval_epochs', type=int, default=10, help='Number of epochs to render for evaluation. default:200')
     parser.add_argument(
             '--batch_size', type=int, default=10, help='Batch size (how many episodes per batch). default: 10')
-    parser.add_argument('--lr_pi', type=float, default=0.002, help='Learning rate for policy optimizer. (default:0.002)')
+    parser.add_argument(
+            '--lr_pi', type=float, default=0.002, help='Learning rate for policy optimizer. (default:0.002)')
     parser.add_argument(
             '--lr_V', type=float, default=0.0024, help='Learning rate for value function optimizer. (default:0.0024)')
     parser.add_argument(
@@ -36,13 +37,19 @@ def parse_args(parser):
     parser.add_argument(
             "--gae_gamma", type=float, default=0.999, help="Discount factor. (Always between 0 and 1., default: 0.999")
     parser.add_argument(
-            "--clip_param", type=float, default=0.2, help="Hyperparameter for clipping in the policy objective."
+            "--clip_param",
+            type=float,
+            default=0.2,
+            help="Hyperparameter for clipping in the policy objective."
             "Roughly: how far can the new policy go from the old policy while"
             "still profiting (improving the objective function)? The new policy"
             "can still go farther than the clip_ratio says, but it doesn't help"
             "on the objective anymore. (Usually small, 0.1 to 0.3.) default:0.2")
     parser.add_argument(
-            "--target_kl", type=float, default=0.2, help="Roughly what KL divergence we think is appropriate"
+            "--target_kl",
+            type=float,
+            default=0.2,
+            help="Roughly what KL divergence we think is appropriate"
             "between new and old policies after an update. This will get used"
             "for early stopping. (Usually small, 0.01 or 0.05.) default:0.01")
     parser.add_argument(
@@ -120,16 +127,17 @@ class PPO():
     def update_net(self, buffer_minibatch):
         obs, act, adv, ret, logp_old = [torch.Tensor(x).to(self.device) for x in buffer_minibatch]
         _, logp, _ = self.select_action(obs, action_taken=act)
+
         def ppo_loss(logp, logp_old, adv, clipped_info=False):
-            ratio = (logp-logp_old).exp()
+            ratio = (logp - logp_old).exp()
             surr1 = ratio * adv
-            surr2 = torch.clamp(ratio, 1.0-self.args.clip_param, 1.0+self.args.clip_param) * adv
+            surr2 = torch.clamp(ratio, 1.0 - self.args.clip_param, 1.0 + self.args.clip_param) * adv
             if clipped_info:
-                clipped = (ratio > (1+self.args.clip_param)) | (ratio < (1-self.args.clip_param))
+                clipped = (ratio > (1 + self.args.clip_param)) | (ratio < (1 - self.args.clip_param))
                 cf = (clipped.float()).mean()
                 return -torch.min(surr1, surr2).mean(), cf
             return -torch.min(surr1, surr2).mean()
-        
+
         pi_loss_old = ppo_loss(logp, logp_old, adv)
         # Estimate the entropy E[-logp]
         entropy_est = (-logp).mean()
@@ -145,11 +153,10 @@ class PPO():
             _, logp, _ = self.select_action(obs, action_taken=act)
             kl = (logp_old - logp).mean()
             if kl > 1.5 * self.args.target_kl:
-                self.logger.log(
-                    'Early stopping at step %d due to reaching max kl.' % i)
+                self.logger.log('Early stopping at step %d due to reaching max kl.' % i)
                 break
         self.logger.store(StopIter=i)
-        
+
         # Value function learning
         # MSE of the value function and the returns
         v = self.actor_critic.value_function(obs)
@@ -249,7 +256,7 @@ class PPO():
                 self.logger.log_tabular('KL', average_only=True)
                 self.logger.log_tabular('ClipFrac', average_only=True)
                 self.logger.log_tabular('StopIter', average_only=True)
-            self.logger.log_tabular('Time', time.time()-start_time)
+            self.logger.log_tabular('Time', time.time() - start_time)
             self.logger.dump_tabular()
 
     def eval(self):
@@ -462,7 +469,7 @@ class ActorCritic(nn.Module):
     def __init__(self,
                  observation_space_shape,
                  action_space,
-                 hidden_sizes=[128,64],
+                 hidden_sizes=[128, 64],
                  activation=torch.tanh,
                  output_activation=None,
                  policy=None):

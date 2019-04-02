@@ -208,7 +208,7 @@ class VPG():
                 self.logger.log_tabular('DeltaLossV', average_only=True)
                 self.logger.log_tabular('Entropy', average_only=True)
                 self.logger.log_tabular('KL', average_only=True)
-            self.logger.log_tabular('Time', time.time()-start_time)
+            self.logger.log_tabular('Time', time.time() - start_time)
             self.logger.dump_tabular()
 
     def eval(self):
