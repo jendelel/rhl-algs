@@ -84,6 +84,7 @@ def parse_args(parser):
             default=5,
             help='How often (in terms of gap between epochs) to log. default: 5'
     )
+    parser.add_argument('--her_k', type=int, default=0, help='K > 0 enables hindsight experience replay default:0.')
     parser.add_argument('--no_cuda', action='store_true', default=False, help='disables CUDA training')
 
 
@@ -102,12 +103,25 @@ class TD3():
 
         if window is not None:
             self.setup_ui(window)
+
+        self.obs_dim = self.env.unwrapped.observation_space.shape[0]
+        if self.args.her_k > 0 and self.args.env.startswith("MountainCar"):
+            self.her_goal_f = lambda obs: [obs[0]]
+            self.env_target = [self.env.unwrapped.goal_position]
+            self.obs_dim = self.env.unwrapped.observation_space.shape[0] + len(self.env_target)
+        elif self.args.her_k > 0 and self.args.env.startswith("LunarLander"):
+            self.her_goal_f = lambda obs: obs
+            self.env_target = np.array([0,0,0,0,1,0], dtype=np.float32)
+            self.obs_dim = self.env.unwrapped.observation_space.shape[0]*2
+        elif self.args.her_k > 0:
+            raise ValueError("Can't use her for {}. Please setup the target state!".format(self.args.env))
+
         self.main_net = ActorCritic(
-                observation_space_shape=self.env.unwrapped.observation_space.shape[0],
+                observation_space_shape=self.obs_dim,
                 action_space=self.env.unwrapped.action_space).to(device=self.device)
 
         self.target_net = ActorCritic(
-                observation_space_shape=self.env.unwrapped.observation_space.shape[0],
+                observation_space_shape=self.obs_dim,
                 action_space=self.env.unwrapped.action_space).to(device=self.device)
 
         self.optimizer_pi = torch.optim.Adam(self.main_net.policy.parameters(), lr=args.lr_pi)
@@ -142,6 +156,8 @@ class TD3():
 
     def get_action(self, obs, noise_scale):
         action_limit = self.env.unwrapped.action_space.high[0]
+        if self.args.her_k > 0:
+            obs = np.concatenate([obs, self.env_target], axis=0)
         pi = self.main_net.policy(torch.Tensor(obs).to(self.device).unsqueeze(dim=0))
         action = pi.detach().cpu().numpy()[0] + noise_scale * np.random.randn(self.env.unwrapped.action_space.shape[0])
         return np.clip(action, -action_limit, action_limit)
@@ -216,10 +232,16 @@ class TD3():
 
     def train(self):
         self.logger.save_config({"args:": self.args})
-        buffer = ReplayBuffer(
-                obs_dim=self.env.unwrapped.observation_space.shape[0],
-                act_dim=self.env.unwrapped.action_space.shape[0],
-                size=self.args.replay_size)
+        if self.args.her_k > 0:
+            buffer = ReplayBuffer(
+                    obs_dim=self.obs_dim,
+                    act_dim=self.env.unwrapped.action_space.shape[0],
+                    size=self.args.replay_size)
+        else:
+            buffer = ReplayBuffer(
+                    obs_dim=self.obs_dim,
+                    act_dim=self.env.unwrapped.action_space.shape[0],
+                    size=self.args.replay_size)
 
         var_counts = tuple(
                 utils.count_parameters(module)
@@ -230,6 +252,7 @@ class TD3():
         obs, reward, done, episode_ret, episode_len = self.env.reset(), 0, False, 0, 0
         tot_steps = 0
         for epoch in range(0, self.args.epochs):
+            episode_buffer = []
             # Set the network in eval mode (e.g. Dropout, BatchNorm etc.)
             for t in range(self.args.max_episode_len):
                 self.window.processEvents()
@@ -248,10 +271,24 @@ class TD3():
 
                 done = False if episode_len == self.args.max_episode_len else done
                 # Save and log
-                buffer.store(obs, action, reward, obs2, done)
+                episode_buffer.append((obs, action, reward, obs2, done))
+                # buffer.store(obs, action, reward, obs2, done)
                 obs = obs2
 
                 if done or (episode_len == self.args.max_episode_len):
+                    if self.args.her_k > 0:
+                        for trans_id, (obs, action, reward, obs2, done) in enumerate(episode_buffer):
+                            buffer.store(np.concatenate([obs,self.env_target],axis=0), action, reward, np.concatenate([obs2,self.env_target],axis=0), done)
+                            for k in range(self.args.her_k):
+                                future_exp = np.random.randint(trans_id, len(episode_buffer))
+                                _,_,_,her_obs2,_ = episode_buffer[future_exp]
+                                her_reward, her_done = (reward+100, True) if np.allclose(self.her_goal_f(her_obs2), self.her_goal_f(obs2)) else (reward, done)
+                                buffer.store(np.concatenate([obs,self.her_goal_f(her_obs2)],axis=0), action, her_reward, np.concatenate([obs2,self.her_goal_f(her_obs2)],axis=0), her_done)
+
+                    else:
+                        for obs, action, reward, obs2, done in episode_buffer:
+                            buffer.store(obs, action, reward, obs2, done)
+                        
                     self.update_net(buffer, episode_len)
                     self.logger.store(EpRet=episode_ret, EpLen=episode_len)
                     obs, reward, done, episode_ret, episode_len = self.env.reset(), 0, False, 0, 0
@@ -347,7 +384,7 @@ class ActorCritic(nn.Module):
     def __init__(self,
                  observation_space_shape,
                  action_space,
-                 hidden_sizes=[128, 64],
+                 hidden_sizes=[32, 32],
                  activation=F.relu,
                  output_activation=torch.tanh,
                  policy=None):
