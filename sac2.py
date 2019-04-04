@@ -29,27 +29,9 @@ def parse_args(parser):
             '--replay_size', type=int, default=int(1e6), help='Maximum size of the replay buffer. default:1e6')
     parser.add_argument(
             '--batch_size', type=int, default=100, help='Batch size (how many episodes per batch). default: 100')
-    parser.add_argument('--lr_pi', type=float, default=1e-3, help='Learning rate for policy optimizer. (default:1e-3)')
+    parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate. (default:1e-3)')
     parser.add_argument(
-            '--lr_q', type=float, default=1e-3, help='Learning rate for the Q-networks optimizer. (default:1e-3)')
-    parser.add_argument(
-            '--noise_clip',
-            type=float,
-            default=0.5,
-            help='Limit for absolute value of target policy smoothing noise.(default:0.5)')
-    parser.add_argument(
-            "--target_noise",
-            type=float,
-            default=0.2,
-            help="Stddev for smoothing noise added to target policy. default: 0.2)")
-    parser.add_argument(
-            "--gamma", type=float, default=0.99, help="Discount factor. (Always between 0 and 1., default: 0.999")
-    parser.add_argument(
-            "--action_noise",
-            type=float,
-            default=0.1,
-            help="Stddev for Gaussian exploration noise added to"
-            "policy at training time. (At test time, no noise is added.) default:0.1")
+            "--gamma", type=float, default=0.99, help="Discount factor. (Always between 0 and 1., default: 0.99")
     parser.add_argument(
             "--polyak",
             type=float,
@@ -62,11 +44,11 @@ def parse_args(parser):
             "where :math:`\\rho` is polyak. (Always between 0 and 1, usually"
             "close to 1.) default:0.995")
     parser.add_argument(
-            '--policy_delay',
-            type=int,
-            default=2,
-            help="Policy will only be updated once every"
-            "policy_delay times for each update of the Q-networks. Default: 2")
+            '--alpha',
+            type=float,
+            default=-1.0,
+            help="Entropy regularization coefficient. (Equivalent to"
+            "inverse of reward scale in the original SAC paper.) When negative, alpha is trainable. Default: -1")
     parser.add_argument(
             '--max_episode_len',
             type=int,
@@ -84,7 +66,7 @@ def parse_args(parser):
     parser.add_argument('--no_cuda', action='store_true', default=False, help='disables CUDA training')
 
 
-class TD3():
+class SAC():
 
     def __init__(self, window, args, env):
         self.window = window
@@ -112,18 +94,26 @@ class TD3():
         elif self.args.her_k > 0:
             raise ValueError("Can't use her for {}. Please setup the target state!".format(self.args.env))
 
+        if self.args.alpha < 0:
+            print("Using trainable alpha")
+            self.target_entropy = -torch.prod(torch.Tensor(self.env.unwrapped.action_space.shape).to(self.device)).item()
+            self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
+            self.optimizer_alpha = torch.optim.Adam([self.log_alpha], lr=self.args.lr)
+        else:
+            self.alpha = self.args.alpha
+
         self.main_net = ActorCritic(
-                observation_space_shape=self.obs_dim,
-                action_space=self.env.unwrapped.action_space).to(device=self.device)
+                in_features=self.obs_dim, action_space=self.env.unwrapped.action_space).to(device=self.device)
 
+        # Only critique (Q-networks) from the target network is used!
         self.target_net = ActorCritic(
-                observation_space_shape=self.obs_dim,
-                action_space=self.env.unwrapped.action_space).to(device=self.device)
+                in_features=self.obs_dim, action_space=self.env.unwrapped.action_space).to(device=self.device)
 
-        self.optimizer_pi = torch.optim.Adam(self.main_net.policy.parameters(), lr=args.lr_pi)
+        self.optimizer_pi = torch.optim.Adam(self.main_net.policy.parameters(), lr=args.lr)
         self.optimizer_q = torch.optim.Adam(
-                itertools.chain(self.main_net.q1.parameters(), self.main_net.q2.parameters()), lr=args.lr_q)
-        self.target_net.load_state_dict(self.main_net.state_dict())
+                itertools.chain(self.main_net.q1.parameters(), self.main_net.q2.parameters()), lr=args.lr)
+        self.target_net.q1.load_state_dict(self.main_net.q1.state_dict())
+        self.target_net.q2.load_state_dict(self.main_net.q2.state_dict())
 
     def setup_ui(self, window):
 
@@ -150,19 +140,18 @@ class TD3():
         window.feedback_widget.setLayout(hor)
         window.keyPressedSignal.connect(keyPressed)
 
-    def get_action(self, obs, noise_scale):
-        action_limit = self.env.unwrapped.action_space.high[0]
+    def get_action(self, obs, deterministic=False):
         if self.args.her_k > 0:
             obs = np.concatenate([obs, self.env_target], axis=0)
-        pi = self.main_net.policy(torch.Tensor(obs).to(self.device).unsqueeze(dim=0))
-        action = pi.detach().cpu().numpy()[0] + noise_scale * np.random.randn(self.env.unwrapped.action_space.shape[0])
-        return np.clip(action, -action_limit, action_limit)
+        pi, mu, _ = self.main_net.policy(torch.Tensor(obs).to(self.device).unsqueeze(dim=0))
+        action = mu.detach().cpu().numpy()[0] if deterministic else mu.detach().cpu().numpy()[0]
+        return action
 
     def test_agent(self, n=10):
         for test_epoch in range(n):
             obs, reward, done, episode_ret, episode_len = self.env.reset(), 0, False, 0, 0
             while not (done or (episode_len == self.args.max_episode_len)):
-                obs, reward, done, _, = self.env.step(self.get_action(obs, 0))
+                obs, reward, done, _, = self.env.step(self.get_action(obs, deterministic=True))
                 self.window.processEvents()
                 if self.render_enabled and test_epoch % self.renderSpin.value() == 0:
                     self.window.render(self.env)
@@ -182,48 +171,58 @@ class TD3():
             batch = buffer.sample_batch(self.args.batch_size)
             (obs1, obs2, actions, rewards, done) = (t(batch['obs1']), t(batch['obs2']), t(batch['acts']),
                                                     t(batch['rews']), t(batch['done']))
-            q1 = self.main_net.q1(torch.cat([obs1, actions], dim=1))
-            q2 = self.main_net.q2(torch.cat([obs1, actions], dim=1))
+            _, _, logp_pi, q1, q2, q1_pi, q2_pi = self.main_net(obs1, actions)
 
-            pi_target = self.target_net.policy(obs2)
-            # Target policy smoothing by adding clipped noise to target actions
-            action_limit = self.env.unwrapped.action_space.high[0]
-            epsilon = torch.normal(torch.zeros_like(pi_target), self.args.target_noise * torch.ones_like(pi_target))
-            epsilon = torch.clamp(epsilon, -self.args.noise_clip, self.args.noise_clip)
-            a2 = torch.clamp(pi_target + epsilon, -action_limit, action_limit)
+            if self.args.alpha < 0:
+                alpha_loss = -(self.log_alpha * (logp_pi + self.target_entropy).detach()).mean()
+                self.optimizer_alpha.zero_grad()
+                alpha_loss.backward()
+                self.optimizer_alpha.step()
+                alpha = self.log_alpha.exp() # .detach() ?? (See github issue.)
+                self.logger.store(LossAlpha=alpha_loss.item())
+            else:
+                alpha = self.args.alpha
 
-            # Target Q-values, using action form target policy
-            q1_target = self.target_net.q1(torch.cat([obs2, a2], dim=1))
-            q2_target = self.target_net.q2(torch.cat([obs2, a2], dim=1))
+            # Targets for Q regression
+            actions_next, _, logp_pi_next = self.main_net.policy(obs2)
+            q1_pi_next = self.target_net.q1(torch.cat((obs2, actions_next), dim=1))
+            q2_pi_next = self.target_net.q2(torch.cat((obs2, actions_next), dim=1))
 
-            # Bellman backup for Q functions, using Clipped Double-Q targets
-            min_q_targ = torch.min(q1_target, q2_target)
-            backup = (rewards + self.args.gamma * (1 - done) * min_q_targ).detach()
+            q_next_value = torch.min(q1_pi_next, q2_pi_next) - alpha * logp_pi_next
+            q_backup = (rewards + self.args.gamma * (1 - done) * q_next_value).detach()
 
-            # TD3 Q losses
-            q1_loss = F.mse_loss(q1, backup)
-            q2_loss = F.mse_loss(q2, backup)
-            q_loss = q1_loss + q2_loss
+            # We are using the current policy (sampling from fresh actions)
+            min_q_pi = torch.min(q1_pi, q2_pi)
 
+            # SAC losses
+            pi_loss = (alpha * logp_pi - min_q_pi).mean()
+            q1_loss = 0.5 * F.mse_loss(q1, q_backup)  # Why times 0.5?
+            q2_loss = 0.5 * F.mse_loss(q2, q_backup)  # Why times 0.5?
+            value_loss = q1_loss + q2_loss
+
+            # Train policy
+            self.optimizer_pi.zero_grad()
+            pi_loss.backward()
+            self.optimizer_pi.step()
+
+            # Q losses
             self.optimizer_q.zero_grad()
-            q_loss.backward()
-            self.optimizer_q.step()
+            value_loss.backward()
+            self.optimizer_q.zero_grad()
+            # Polyak averaging for target variables
+            for p_main, p_target, in zip(
+                    itertools.chain(self.main_net.q1.parameters(), self.main_net.q2.parameters()),
+                    itertools.chain(self.target_net.q1.parameters(), self.target_net.q2.parameters())):
+                p_target.data.copy_(self.args.polyak * p_target.data + (1 - self.args.polyak) * p_main.data)
 
-            self.logger.store(LossQ=q_loss.item(), Q1Vals=q1.detach().cpu().numpy(), Q2Vals=q2.detach().cpu().numpy())
-
-            if j % self.args.policy_delay == 0:
-                q1_pi = self.main_net.q1(torch.cat([obs1, self.main_net.policy(obs1)], dim=1))
-                pi_loss = -q1_pi.mean()  # Maximize the Q function.
-
-                self.optimizer_pi.zero_grad()
-                pi_loss.backward()
-                self.optimizer_pi.step()
-
-                # Polyak averaging for target variables
-                for p_main, p_target, in zip(self.main_net.parameters(), self.target_net.parameters()):
-                    p_target.data.copy_(self.args.polyak * p_target.data + (1 - self.args.polyak) * p_main.data)
-
-                self.logger.store(LossPi=pi_loss.item())
+            self.logger.store(
+                    LossPi=pi_loss.item(),
+                    LossQ1=q1_loss.item(),
+                    LossQ2=q2_loss.item(),
+                    Alpha=alpha.item(),
+                    Q1Vals=q1.detach().cpu().numpy(),
+                    Q2Vals=q2.detach().cpu().numpy(),
+                    LogPi=logp_pi.detach().cpu().numpy())
 
     def train(self):
         self.logger.save_config({"args:": self.args})
@@ -235,9 +234,10 @@ class TD3():
                     obs_dim=self.obs_dim, act_dim=self.env.unwrapped.action_space.shape[0], size=self.args.replay_size)
 
         var_counts = tuple(
-                utils.count_parameters(module)
-                for module in [self.main_net.policy, self.main_net.q1, self.main_net.q2, self.main_net])
-        self.logger.log('\nNumber of parameters: \t pi: %d, \t q1: %d, \t q2: %d, \t total: %d\n' % var_counts)
+                utils.count_parameters(module) for module in
+                [self.main_net.policy, self.main_net.q1, self.main_net.q2, self.main_net])
+        self.logger.log(
+                '\nNumber of parameters: \t pi: %d, \t q1: %d, \t q2: %d, \t total: %d\n' % var_counts)
 
         start_time = time.time()
         obs, reward, done, episode_ret, episode_len = self.env.reset(), 0, False, 0, 0
@@ -250,7 +250,7 @@ class TD3():
                 if not self.window.isVisible():
                     return
                 if tot_steps > self.args.start_steps:
-                    action = self.get_action(obs, self.args.action_noise)
+                    action = self.get_action(obs)
                 else:
                     action = self.env.action_space.sample()
 
@@ -303,15 +303,20 @@ class TD3():
                         self.logger.log_tabular('TotalEnvInteracts', tot_steps)
                         self.logger.log_tabular('Q1Vals', with_min_and_max=True)
                         self.logger.log_tabular('Q2Vals', with_min_and_max=True)
+                        self.logger.log_tabular('LogPi', with_min_and_max=True)
+                        self.logger.log_tabular('Alpha', average_only=True)
                         self.logger.log_tabular('LossPi', average_only=True)
-                        self.logger.log_tabular('LossQ', average_only=True)
+                        self.logger.log_tabular('LossQ1', average_only=True)
+                        self.logger.log_tabular('LossQ2', average_only=True)
+                        if self.args.alpha < 0:
+                            self.logger.log_tabular('LossAlpha', average_only=True)
                         self.logger.log_tabular('Time', time.time() - start_time)
                         self.logger.dump_tabular()
                     break
 
 
 def start(window, args, env):
-    alg = TD3(window, args, env)
+    alg = SAC(window, args, env)
     print("Number of trainable parameters:", utils.count_parameters(alg.main_net))
     alg.train()
     print("Done")
@@ -350,6 +355,11 @@ class ReplayBuffer:
                 done=self.done_buf[idxs])
 
 
+LOG_STD_MAX = 2
+LOG_STD_MIN = -20
+EPS = 1e-6
+
+
 class MLP(nn.Module):
 
     def __init__(self, layers, activation=torch.tanh, output_activation=None, output_scale=1, output_squeeze=False):
@@ -375,41 +385,100 @@ class MLP(nn.Module):
         return x.squeeze() if self.output_squeeze else x
 
 
+class GaussianPolicy(nn.Module):
+
+    def __init__(self, in_features, hidden_sizes, activation, output_activation, action_space):
+        super(GaussianPolicy, self).__init__()
+
+        action_dim = action_space.shape[0]
+        self.action_scale = action_space.high[0]
+        self.output_activation = output_activation
+
+        self.net = MLP(layers=[in_features] + list(hidden_sizes), activation=activation, output_activation=activation)
+
+        self.mu = nn.Linear(in_features=list(hidden_sizes)[-1], out_features=action_dim)
+        """
+        Because this algorithm maximizes trade-off of reward and entropy,
+        entropy must be unique to state---and therefore log_stds need
+        to be a neural network output instead of a shared-across-states
+        learnable parameter vector. But for deep Relu and other nets,
+        simply sticking an activationless dense layer at the end would
+        be quite bad---at the beginning of training, a randomly initialized
+        net could produce extremely large values for the log_stds, which
+        would result in some actions being either entirely deterministic
+        or too random to come back to earth. Either of these introduces
+        numerical instability which could break the algorithm. To
+        protect against that, we'll constrain the output range of the
+        log_stds, to lie within [LOG_STD_MIN, LOG_STD_MAX]. This is
+        slightly different from the trick used by the original authors of
+        SAC---they used torch.clamp instead of squashing and rescaling.
+        I prefer this approach because it allows gradient propagation
+        through log_std where clipping wouldn't, but I don't know if
+        it makes much of a difference.
+        """
+        self.log_std = nn.Sequential(nn.Linear(in_features=list(hidden_sizes)[-1], out_features=action_dim), nn.Tanh())
+
+    def forward(self, x):
+        output = self.net(x)
+        mu = self.mu(output)
+        if self.output_activation:
+            mu = self.output_activation(mu)
+        log_std = self.log_std(output)
+        log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)
+
+        policy = torch.distributions.Normal(mu, torch.exp(log_std))
+        pi = policy.rsample()  # Critical: must be rsample() and not sample()
+        logp_pi = torch.sum(policy.log_prob(pi), dim=1)
+
+        mu, pi, logp_pi = self._apply_squashing_func(mu, pi, logp_pi)
+
+        # make sure actions are in correct range
+        mu_scaled = mu * self.action_scale
+        pi_scaled = pi * self.action_scale
+
+        return pi_scaled, mu_scaled, logp_pi
+
+    def _clip_but_pass_gradient(self, x, l=-1., u=1.):
+        clip_up = (x > u).float()
+        clip_low = (x < l).float()
+        return x + ((u - x) * clip_up + (l - x) * clip_low).detach()
+
+    def _apply_squashing_func(self, mu, pi, logp_pi):
+        mu = torch.tanh(mu)
+        pi = torch.tanh(pi)
+
+        # To avoid evil machine precision error, strictly clip 1-pi**2 to [0,1] range.
+        logp_pi -= torch.sum(torch.log(self._clip_but_pass_gradient(1 - pi**2, l=0, u=1) + EPS), dim=1)
+
+        return mu, pi, logp_pi
+
+
 class ActorCritic(nn.Module):
 
     def __init__(self,
-                 observation_space_shape,
+                 in_features,
                  action_space,
-                 hidden_sizes=[32, 32],
-                 activation=F.relu,
-                 output_activation=torch.tanh,
-                 policy=None):
+                 hidden_sizes=(32, 32),
+                 activation=torch.relu,
+                 output_activation=None,
+                 policy=GaussianPolicy):
         super(ActorCritic, self).__init__()
 
         action_dim = action_space.shape[0]
-        action_scale = action_space.high[0]
 
-        self.policy = MLP(
-                layers=[observation_space_shape] + list(hidden_sizes) + [action_dim],
-                activation=activation,
-                output_activation=output_activation,
-                output_scale=action_scale)
-        self.q1 = MLP(
-                layers=[observation_space_shape + action_dim] + list(hidden_sizes) + [1],
-                activation=activation,
-                output_squeeze=True)
-        self.q2 = MLP(
-                layers=[observation_space_shape + action_dim] + list(hidden_sizes) + [1],
-                activation=activation,
-                output_squeeze=True)
+        self.policy = policy(in_features, hidden_sizes, activation, output_activation, action_space)
 
-    def forward(self, x, action_taken):
-        print(x)
-        pi = self.policy(x)
+        self.q1 = MLP([in_features + action_dim] + list(hidden_sizes) + [1], activation, output_squeeze=True)
 
-        q1 = self.q1(torch.cat([x, action_taken], dim=1))
-        q2 = self.q2(torch.cat([x, action_taken], dim=1))
+        self.q2 = MLP([in_features + action_dim] + list(hidden_sizes) + [1], activation, output_squeeze=True)
 
-        q1_pi = self.q1(torch.cat([x, pi], dim=1))
+    def forward(self, x, a):
+        pi, mu, logp_pi = self.policy(x)
 
-        return pi, q1, q2, q1_pi
+        q1 = self.q1(torch.cat((x, a), dim=1))
+        q1_pi = self.q1(torch.cat((x, pi), dim=1))
+
+        q2 = self.q2(torch.cat((x, a), dim=1))
+        q2_pi = self.q2(torch.cat((x, pi), dim=1))
+
+        return pi, mu, logp_pi, q1, q2, q1_pi, q2_pi
