@@ -295,17 +295,17 @@ class TD3():
                     if epoch % self.args.log_freq == 0:
                         self.test_agent(self.args.eval_epochs)
                         # Log info about epoch
-                        self.logger.log_tabular('Epoch', epoch)
-                        self.logger.log_tabular('EpRet', with_min_and_max=True)
-                        self.logger.log_tabular('TestEpRet', with_min_and_max=True)
-                        self.logger.log_tabular('EpLen', average_only=True)
-                        self.logger.log_tabular('TestEpLen', average_only=True)
-                        self.logger.log_tabular('TotalEnvInteracts', tot_steps)
-                        self.logger.log_tabular('Q1Vals', with_min_and_max=True)
-                        self.logger.log_tabular('Q2Vals', with_min_and_max=True)
-                        self.logger.log_tabular('LossPi', average_only=True)
-                        self.logger.log_tabular('LossQ', average_only=True)
-                        self.logger.log_tabular('Time', time.time() - start_time)
+                        self.logger.log_tabular(tot_steps, 'Epoch', epoch)
+                        self.logger.log_tabular(tot_steps, 'EpRet', with_min_and_max=True)
+                        self.logger.log_tabular(tot_steps, 'TestEpRet', with_min_and_max=True)
+                        self.logger.log_tabular(tot_steps, 'EpLen', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'TestEpLen', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'TotalEnvInteracts', tot_steps)
+                        self.logger.log_tabular(tot_steps, 'Q1Vals', with_min_and_max=True)
+                        self.logger.log_tabular(tot_steps, 'Q2Vals', with_min_and_max=True)
+                        self.logger.log_tabular(tot_steps, 'LossPi', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'LossQ', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'Time', time.time() - start_time)
                         self.logger.dump_tabular()
                     break
 

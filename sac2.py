@@ -96,7 +96,8 @@ class SAC():
 
         if self.args.alpha < 0:
             print("Using trainable alpha")
-            self.target_entropy = -torch.prod(torch.Tensor(self.env.unwrapped.action_space.shape).to(self.device)).item()
+            self.target_entropy = -torch.prod(torch.Tensor(self.env.unwrapped.action_space.shape).to(
+                    self.device)).item()
             self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
             self.optimizer_alpha = torch.optim.Adam([self.log_alpha], lr=self.args.lr)
         else:
@@ -178,7 +179,7 @@ class SAC():
                 self.optimizer_alpha.zero_grad()
                 alpha_loss.backward()
                 self.optimizer_alpha.step()
-                alpha = self.log_alpha.exp() # .detach() ?? (See github issue.)
+                alpha = self.log_alpha.exp()  # .detach() ?? (See github issue.)
                 self.logger.store(LossAlpha=alpha_loss.item())
             else:
                 alpha = self.args.alpha
@@ -234,10 +235,9 @@ class SAC():
                     obs_dim=self.obs_dim, act_dim=self.env.unwrapped.action_space.shape[0], size=self.args.replay_size)
 
         var_counts = tuple(
-                utils.count_parameters(module) for module in
-                [self.main_net.policy, self.main_net.q1, self.main_net.q2, self.main_net])
-        self.logger.log(
-                '\nNumber of parameters: \t pi: %d, \t q1: %d, \t q2: %d, \t total: %d\n' % var_counts)
+                utils.count_parameters(module)
+                for module in [self.main_net.policy, self.main_net.q1, self.main_net.q2, self.main_net])
+        self.logger.log('\nNumber of parameters: \t pi: %d, \t q1: %d, \t q2: %d, \t total: %d\n' % var_counts)
 
         start_time = time.time()
         obs, reward, done, episode_ret, episode_len = self.env.reset(), 0, False, 0, 0
@@ -295,22 +295,22 @@ class SAC():
                     if epoch % self.args.log_freq == 0:
                         self.test_agent(self.args.eval_epochs)
                         # Log info about epoch
-                        self.logger.log_tabular('Epoch', epoch)
-                        self.logger.log_tabular('EpRet', with_min_and_max=True)
-                        self.logger.log_tabular('TestEpRet', with_min_and_max=True)
-                        self.logger.log_tabular('EpLen', average_only=True)
-                        self.logger.log_tabular('TestEpLen', average_only=True)
-                        self.logger.log_tabular('TotalEnvInteracts', tot_steps)
-                        self.logger.log_tabular('Q1Vals', with_min_and_max=True)
-                        self.logger.log_tabular('Q2Vals', with_min_and_max=True)
-                        self.logger.log_tabular('LogPi', with_min_and_max=True)
-                        self.logger.log_tabular('Alpha', average_only=True)
-                        self.logger.log_tabular('LossPi', average_only=True)
-                        self.logger.log_tabular('LossQ1', average_only=True)
-                        self.logger.log_tabular('LossQ2', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'Epoch', epoch)
+                        self.logger.log_tabular(tot_steps, 'EpRet', with_min_and_max=True)
+                        self.logger.log_tabular(tot_steps, 'TestEpRet', with_min_and_max=True)
+                        self.logger.log_tabular(tot_steps, 'EpLen', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'TestEpLen', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'TotalEnvInteracts', tot_steps)
+                        self.logger.log_tabular(tot_steps, 'Q1Vals', with_min_and_max=True)
+                        self.logger.log_tabular(tot_steps, 'Q2Vals', with_min_and_max=True)
+                        self.logger.log_tabular(tot_steps, 'LogPi', with_min_and_max=True)
+                        self.logger.log_tabular(tot_steps, 'Alpha', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'LossPi', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'LossQ1', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'LossQ2', average_only=True)
                         if self.args.alpha < 0:
-                            self.logger.log_tabular('LossAlpha', average_only=True)
-                        self.logger.log_tabular('Time', time.time() - start_time)
+                            self.logger.log_tabular(tot_steps, 'LossAlpha', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'Time', time.time() - start_time)
                         self.logger.dump_tabular()
                     break
 

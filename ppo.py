@@ -191,6 +191,7 @@ class PPO():
                 size=(self.args.batch_size + 1) * self.args.max_episode_len,
                 gamma=self.args.gae_gamma,
                 lam=self.args.gae_lambda)
+        tot_steps = 0
 
         var_counts = tuple(
                 utils.count_parameters(module)
@@ -212,6 +213,7 @@ class PPO():
                 obs, reward, done, _ = self.env.step(action.detach().cpu().numpy()[0])
                 episode_ret += reward
                 episode_len += 1
+                tot_steps += 1
 
                 self.window.processEvents()
                 if self.render_enabled and epoch % self.renderSpin.value() == 0:
@@ -242,21 +244,21 @@ class PPO():
                 pass
 
             # Log info about epoch
-            self.logger.log_tabular('Epoch', epoch)
-            self.logger.log_tabular('EpRet', with_min_and_max=True)
-            self.logger.log_tabular('EpLen', average_only=True)
-            self.logger.log_tabular('VVals', with_min_and_max=True)
+            self.logger.log_tabular(tot_steps, 'Epoch', epoch)
+            self.logger.log_tabular(tot_steps, 'EpRet', with_min_and_max=True)
+            self.logger.log_tabular(tot_steps, 'EpLen', average_only=True)
+            self.logger.log_tabular(tot_steps, 'VVals', with_min_and_max=True)
             # self.logger.log_tabular('TotalEnvInteracts', (epoch+1)*steps_per_epoch)
             if epoch % self.args.batch_size == 0:
-                self.logger.log_tabular('LossPi', average_only=True)
-                self.logger.log_tabular('LossV', average_only=True)
-                self.logger.log_tabular('DeltaLossPi', average_only=True)
-                self.logger.log_tabular('DeltaLossV', average_only=True)
-                self.logger.log_tabular('Entropy', average_only=True)
-                self.logger.log_tabular('KL', average_only=True)
-                self.logger.log_tabular('ClipFrac', average_only=True)
-                self.logger.log_tabular('StopIter', average_only=True)
-            self.logger.log_tabular('Time', time.time() - start_time)
+                self.logger.log_tabular(tot_steps, 'LossPi', average_only=True)
+                self.logger.log_tabular(tot_steps, 'LossV', average_only=True)
+                self.logger.log_tabular(tot_steps, 'DeltaLossPi', average_only=True)
+                self.logger.log_tabular(tot_steps, 'DeltaLossV', average_only=True)
+                self.logger.log_tabular(tot_steps, 'Entropy', average_only=True)
+                self.logger.log_tabular(tot_steps, 'KL', average_only=True)
+                self.logger.log_tabular(tot_steps, 'ClipFrac', average_only=True)
+                self.logger.log_tabular(tot_steps, 'StopIter', average_only=True)
+            self.logger.log_tabular(tot_steps, 'Time', time.time() - start_time)
             self.logger.dump_tabular()
 
     def eval(self):

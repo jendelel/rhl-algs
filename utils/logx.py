@@ -12,6 +12,8 @@ import numpy as np
 import torch
 import os.path as osp, time, atexit, os
 from utils.serialization_utils import convert_json
+from tensorboardX import SummaryWriter
+import numpy as np
 
 color2num = dict(gray=30, red=31, green=32, yellow=33, blue=34, magenta=35, cyan=36, white=37, crimson=38)
 
@@ -38,7 +40,7 @@ class Logger:
     state of a training run, and the trained model.
     """
 
-    def __init__(self, output_dir=None, output_fname='progress.txt', exp_name=None):
+    def __init__(self, output_dir=None, output_fname='progress.txt', exp_name=None, tensorboard=True):
         """
         Initialize a Logger.
 
@@ -70,11 +72,16 @@ class Logger:
         self.log_current_row = {}
         self.exp_name = exp_name
 
+        if tensorboard:
+            self.summary_writer = SummaryWriter()
+        else:
+            self.summary_writer = None
+
     def log(self, msg, color='green'):
         """Print a colorized message to stdout."""
         print(colorize(msg, color, bold=True))
 
-    def log_tabular(self, key, val):
+    def log_tabular(self, step, key, val, tensorboard=True):
         """
         Log a value of some diagnostic.
 
@@ -89,6 +96,9 @@ class Logger:
             assert key in self.log_headers, "Trying to introduce a new key %s that you didn't include in the first iteration" % key
         assert key not in self.log_current_row, "You already set %s this iteration. Maybe you forgot to call dump_tabular()" % key
         self.log_current_row[key] = val
+
+        if self.summary_writer is not None and tensorboard:
+            self.summary_writer.add_scalar(key, val, step)
 
     def save_config(self, config):
         """
@@ -233,7 +243,7 @@ class EpochLogger(Logger):
                 self.epoch_dict[k] = []
             self.epoch_dict[k].append(v)
 
-    def log_tabular(self, key, val=None, with_min_and_max=False, average_only=False):
+    def log_tabular(self, step, key, val=None, with_min_and_max=False, average_only=False):
         """
         Log a value or possibly the mean/std/min/max values of a diagnostic.
 
@@ -253,17 +263,19 @@ class EpochLogger(Logger):
                 of the diagnostic over the epoch.
         """
         if val is not None:
-            super().log_tabular(key, val)
+            super().log_tabular(step, key, val)
         else:
             v = self.epoch_dict[key]
             vals = np.concatenate(v) if isinstance(v[0], np.ndarray) and len(v[0].shape) > 0 else v
             stats = stats_scalar(vals, with_min_and_max=with_min_and_max)
-            super().log_tabular(key if average_only else 'Average' + key, stats[0])
+            super().log_tabular(step, key if average_only else 'Average' + key, stats[0])
             if not (average_only):
-                super().log_tabular('Std' + key, stats[1])
+                super().log_tabular(step, 'Std' + key, stats[1])
+                if self.summary_writer:
+                    self.summary_writer.add_histogram(key, np.array(vals), step)
             if with_min_and_max:
-                super().log_tabular('Max' + key, stats[3])
-                super().log_tabular('Min' + key, stats[2])
+                super().log_tabular(step, 'Max' + key, stats[3])
+                super().log_tabular(step, 'Min' + key, stats[2])
         self.epoch_dict[key] = []
 
     def get_stats(self, key):

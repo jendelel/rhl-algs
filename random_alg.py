@@ -21,7 +21,7 @@ def start(window, args, env):
             if not window.isVisible():
                 break
             ep_reward += reward
-            print("Action: %d, Reward: %d, ep_reward: %d" % (action, reward, ep_reward))
+            print("Action: {}, Reward: {}, ep_reward: {}".format(action, reward, ep_reward))
             if done:
                 break
         if not window.isVisible():

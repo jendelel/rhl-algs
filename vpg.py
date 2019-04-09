@@ -152,6 +152,7 @@ class VPG():
         self.logger.log('\nNumber of parameters: \t pi: %d, \t v: %d\n' % var_counts)
 
         start_time = time.time()
+        tot_steps = 0
         obs, reward, done, episode_ret, episode_len = self.env.reset(), 0, False, 0, 0
         for epoch in range(0, self.args.epochs):
             # Set the network in eval mode (e.g. Dropout, BatchNorm etc.)
@@ -164,6 +165,7 @@ class VPG():
                 self.logger.store(VVals=v_t)
 
                 obs, reward, done, _ = self.env.step(action.detach().cpu().numpy()[0])
+                tot_steps += 1
                 episode_ret += reward
                 episode_len += 1
 
@@ -196,19 +198,19 @@ class VPG():
                 pass
 
             # Log info about epoch
-            self.logger.log_tabular('Epoch', epoch)
-            self.logger.log_tabular('EpRet', with_min_and_max=True)
-            self.logger.log_tabular('EpLen', average_only=True)
-            self.logger.log_tabular('VVals', with_min_and_max=True)
-            # self.logger.log_tabular('TotalEnvInteracts', (epoch+1)*steps_per_epoch)
+            self.logger.log_tabular(tot_steps, 'Epoch', epoch)
+            self.logger.log_tabular(tot_steps, 'EpRet', with_min_and_max=True)
+            self.logger.log_tabular(tot_steps, 'EpLen', average_only=True)
+            self.logger.log_tabular(tot_steps, 'VVals', with_min_and_max=True)
+            self.logger.log_tabular(tot_steps, 'TotalEnvInteracts', tot_steps)
             if epoch % self.args.batch_size == 0:
-                self.logger.log_tabular('LossPi', average_only=True)
-                self.logger.log_tabular('LossV', average_only=True)
-                self.logger.log_tabular('DeltaLossPi', average_only=True)
-                self.logger.log_tabular('DeltaLossV', average_only=True)
-                self.logger.log_tabular('Entropy', average_only=True)
-                self.logger.log_tabular('KL', average_only=True)
-            self.logger.log_tabular('Time', time.time() - start_time)
+                self.logger.log_tabular(tot_steps, 'LossPi', average_only=True)
+                self.logger.log_tabular(tot_steps, 'LossV', average_only=True)
+                self.logger.log_tabular(tot_steps, 'DeltaLossPi', average_only=True)
+                self.logger.log_tabular(tot_steps, 'DeltaLossV', average_only=True)
+                self.logger.log_tabular(tot_steps, 'Entropy', average_only=True)
+                self.logger.log_tabular(tot_steps, 'KL', average_only=True)
+            self.logger.log_tabular(tot_steps, 'Time', time.time() - start_time)
             self.logger.dump_tabular()
 
     def eval(self):
