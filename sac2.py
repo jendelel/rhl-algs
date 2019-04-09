@@ -28,8 +28,8 @@ def parse_args(parser):
     parser.add_argument(
             '--replay_size', type=int, default=int(1e6), help='Maximum size of the replay buffer. default:1e6')
     parser.add_argument(
-            '--batch_size', type=int, default=100, help='Batch size (how many episodes per batch). default: 100')
-    parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate. (default:1e-3)')
+            '--batch_size', type=int, default=256, help='Batch size (how many episodes per batch). default: 100')
+    parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate. (default:1e-3)')
     parser.add_argument(
             "--gamma", type=float, default=0.99, help="Discount factor. (Always between 0 and 1., default: 0.99")
     parser.add_argument(
@@ -209,7 +209,7 @@ class SAC():
             # Q losses
             self.optimizer_q.zero_grad()
             value_loss.backward()
-            self.optimizer_q.zero_grad()
+            self.optimizer_q.step()
             # Polyak averaging for target variables
             for p_main, p_target, in zip(
                     itertools.chain(self.main_net.q1.parameters(), self.main_net.q2.parameters()),

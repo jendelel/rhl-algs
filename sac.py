@@ -14,7 +14,7 @@ def parse_args(parser):
     parser.add_argument(
             '--epochs',
             type=int,
-            default=400,
+            default=30,
             help='Number of epochs of interaction (equivalent to'
             'number of policy updates) to perform. default:400')
     parser.add_argument(
@@ -28,8 +28,8 @@ def parse_args(parser):
     parser.add_argument(
             '--replay_size', type=int, default=int(1e6), help='Maximum size of the replay buffer. default:1e6')
     parser.add_argument(
-            '--batch_size', type=int, default=100, help='Batch size (how many episodes per batch). default: 100')
-    parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate. (default:1e-3)')
+            '--batch_size', type=int, default=256, help='Batch size (how many episodes per batch). default: 100')
+    parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate. (default:1e-3)')
     parser.add_argument(
             "--gamma", type=float, default=0.99, help="Discount factor. (Always between 0 and 1., default: 0.99")
     parser.add_argument(
@@ -188,7 +188,7 @@ class SAC():
             # TD3 Q losses
             self.optimizer_qV.zero_grad()
             value_loss.backward()
-            self.optimizer_qV.zero_grad()
+            self.optimizer_qV.step()
             # Polyak averaging for target variables
             for p_main, p_target, in zip(self.main_net.value_function.parameters(),
                                          self.target_net.value_function.parameters()):
@@ -229,6 +229,7 @@ class SAC():
                 self.window.processEvents()
                 if not self.window.isVisible():
                     return
+
                 if tot_steps > self.args.start_steps:
                     action = self.get_action(obs)
                 else:
@@ -437,7 +438,7 @@ class ActorCritic(nn.Module):
     def __init__(self,
                  in_features,
                  action_space,
-                 hidden_sizes=(32, 32),
+                 hidden_sizes=(256, 256),
                  activation=torch.relu,
                  output_activation=None,
                  policy=GaussianPolicy):

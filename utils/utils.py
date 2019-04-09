@@ -1,9 +1,8 @@
 import numpy as np
 
 
-def count_parameters(model):
-    model_parameters = filter(lambda p: p.requires_grad, model.parameters())
-    return sum([np.prod(p.size()) for p in model_parameters])
+def count_parameters(module):
+    return sum(p.numel() for p in module.parameters() if p.requires_grad)
 
 
 def seconds_to_text(secs):
