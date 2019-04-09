@@ -1,8 +1,16 @@
 import numpy as np
+import datetime
+import os
 
 
 def count_parameters(module):
     return sum(p.numel() for p in module.parameters() if p.requires_grad)
+
+
+def get_log_dir(args):
+    return os.path.join(
+            "runs", "experiments", "{}-{}".format(args.env, args.alg,
+                                                     datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")))
 
 
 def seconds_to_text(secs):

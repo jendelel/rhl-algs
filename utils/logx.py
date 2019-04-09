@@ -73,7 +73,7 @@ class Logger:
         self.exp_name = exp_name
 
         if tensorboard:
-            self.summary_writer = SummaryWriter()
+            self.summary_writer = SummaryWriter(log_dir=output_dir)
         else:
             self.summary_writer = None
 
@@ -239,9 +239,10 @@ class EpochLogger(Logger):
         values.
         """
         for k, v in kwargs.items():
-            if not (k in self.epoch_dict.keys()):
-                self.epoch_dict[k] = []
-            self.epoch_dict[k].append(v)
+            key = k.replace("_", "/")
+            if not (key in self.epoch_dict.keys()):
+                self.epoch_dict[key] = []
+            self.epoch_dict[key].append(v)
 
     def log_tabular(self, step, key, val=None, with_min_and_max=False, average_only=False):
         """
@@ -266,16 +267,17 @@ class EpochLogger(Logger):
             super().log_tabular(step, key, val)
         else:
             v = self.epoch_dict[key]
+            prefix, name = os.path.split(key)
             vals = np.concatenate(v) if isinstance(v[0], np.ndarray) and len(v[0].shape) > 0 else v
             stats = stats_scalar(vals, with_min_and_max=with_min_and_max)
-            super().log_tabular(step, key if average_only else 'Average' + key, stats[0])
+            super().log_tabular(step, "{}/{}".format(prefix, name if average_only else 'Average/' + name), stats[0])
             if not (average_only):
-                super().log_tabular(step, 'Std' + key, stats[1])
+                super().log_tabular(step, '{}/Std/{}'.format(prefix, name), stats[1])
                 if self.summary_writer:
                     self.summary_writer.add_histogram(key, np.array(vals), step)
             if with_min_and_max:
-                super().log_tabular(step, 'Max' + key, stats[3])
-                super().log_tabular(step, 'Min' + key, stats[2])
+                super().log_tabular(step, '{}/Max/{}'.format(prefix, name), stats[3])
+                super().log_tabular(step, '{}/Min/{}'.format(prefix, name), stats[2])
         self.epoch_dict[key] = []
 
     def get_stats(self, key):

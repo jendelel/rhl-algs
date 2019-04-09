@@ -14,7 +14,7 @@ def parse_args(parser):
     parser.add_argument(
             '--epochs',
             type=int,
-            default=30,
+            default=400,
             help='Number of epochs of interaction (equivalent to'
             'number of policy updates) to perform. default:400')
     parser.add_argument(

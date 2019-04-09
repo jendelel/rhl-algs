@@ -77,7 +77,8 @@ class SAC():
         self.device = torch.device("cuda" if not args.no_cuda else "cpu")
         self.render_enabled = True
         self.renderSpin = None
-        self.logger = logx.EpochLogger()
+
+        self.logger = logx.EpochLogger(output_dir=utils.get_log_dir(args))
 
         if window is not None:
             self.setup_ui(window)
@@ -161,7 +162,7 @@ class SAC():
                     return
                 episode_ret += reward
                 episode_len += 1
-            self.logger.store(TestEpRet=episode_ret, TestEpLen=episode_len)
+            self.logger.store(test_TestEpRet=episode_ret, test_TestEpLen=episode_len)
 
     def update_net(self, buffer, episode_len):
 
@@ -180,7 +181,7 @@ class SAC():
                 alpha_loss.backward()
                 self.optimizer_alpha.step()
                 alpha = self.log_alpha.exp()  # .detach() ?? (See github issue.)
-                self.logger.store(LossAlpha=alpha_loss.item())
+                self.logger.store(loss_LossAlpha=alpha_loss.item())
             else:
                 alpha = self.args.alpha
 
@@ -217,13 +218,13 @@ class SAC():
                 p_target.data.copy_(self.args.polyak * p_target.data + (1 - self.args.polyak) * p_main.data)
 
             self.logger.store(
-                    LossPi=pi_loss.item(),
-                    LossQ1=q1_loss.item(),
-                    LossQ2=q2_loss.item(),
-                    Alpha=alpha.item(),
-                    Q1Vals=q1.detach().cpu().numpy(),
-                    Q2Vals=q2.detach().cpu().numpy(),
-                    LogPi=logp_pi.detach().cpu().numpy())
+                    loss_LossPi=pi_loss.item(),
+                    loss_LossQ1=q1_loss.item(),
+                    loss_LossQ2=q2_loss.item(),
+                    vals_Alpha=alpha.item(),
+                    vals_Q1=q1.detach().cpu().numpy(),
+                    vals_Q2=q2.detach().cpu().numpy(),
+                    vals_LogPi=logp_pi.detach().cpu().numpy())
 
     def train(self):
         self.logger.save_config({"args:": self.args})
@@ -261,9 +262,10 @@ class SAC():
                 episode_ret += reward
 
                 done = False if episode_len == self.args.max_episode_len else done
-                # Save and log
-                episode_buffer.append((obs, action, reward, obs2, done))
-                # buffer.store(obs, action, reward, obs2, done)
+                if self.args.her_k > 0:
+                    episode_buffer.append((obs, action, reward, obs2, done))
+                else:
+                    buffer.store(obs, action, reward, obs2, done)
                 obs = obs2
 
                 if done or (episode_len == self.args.max_episode_len):
@@ -281,12 +283,8 @@ class SAC():
                                         np.concatenate([obs, self.her_goal_f(her_obs2)], axis=0), action, her_reward,
                                         np.concatenate([obs2, self.her_goal_f(her_obs2)], axis=0), her_done)
 
-                    else:
-                        for obs, action, reward, obs2, done in episode_buffer:
-                            buffer.store(obs, action, reward, obs2, done)
-
                     self.update_net(buffer, episode_len)
-                    self.logger.store(EpRet=episode_ret, EpLen=episode_len)
+                    self.logger.store(train_EpRet=episode_ret, train_EpLen=episode_len)
                     obs, reward, done, episode_ret, episode_len = self.env.reset(), 0, False, 0, 0
 
                     if (epoch % self.args.save_freq == 0) or (epoch == self.args.epochs - 1):
@@ -295,21 +293,21 @@ class SAC():
                     if epoch % self.args.log_freq == 0:
                         self.test_agent(self.args.eval_epochs)
                         # Log info about epoch
-                        self.logger.log_tabular(tot_steps, 'Epoch', epoch)
-                        self.logger.log_tabular(tot_steps, 'EpRet', with_min_and_max=True)
-                        self.logger.log_tabular(tot_steps, 'TestEpRet', with_min_and_max=True)
-                        self.logger.log_tabular(tot_steps, 'EpLen', average_only=True)
-                        self.logger.log_tabular(tot_steps, 'TestEpLen', average_only=True)
-                        self.logger.log_tabular(tot_steps, 'TotalEnvInteracts', tot_steps)
-                        self.logger.log_tabular(tot_steps, 'Q1Vals', with_min_and_max=True)
-                        self.logger.log_tabular(tot_steps, 'Q2Vals', with_min_and_max=True)
-                        self.logger.log_tabular(tot_steps, 'LogPi', with_min_and_max=True)
-                        self.logger.log_tabular(tot_steps, 'Alpha', average_only=True)
-                        self.logger.log_tabular(tot_steps, 'LossPi', average_only=True)
-                        self.logger.log_tabular(tot_steps, 'LossQ1', average_only=True)
-                        self.logger.log_tabular(tot_steps, 'LossQ2', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'train/Epoch', epoch)
+                        self.logger.log_tabular(tot_steps, 'train/EpRet', with_min_and_max=True)
+                        self.logger.log_tabular(tot_steps, 'test/TestEpRet', with_min_and_max=True)
+                        self.logger.log_tabular(tot_steps, 'train/EpLen', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'test/TestEpLen', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'train/TotalEnvInteracts', tot_steps)
+                        self.logger.log_tabular(tot_steps, 'vals/Q1', with_min_and_max=True)
+                        self.logger.log_tabular(tot_steps, 'vals/Q2', with_min_and_max=True)
+                        self.logger.log_tabular(tot_steps, 'vals/LogPi', with_min_and_max=True)
+                        self.logger.log_tabular(tot_steps, 'vals/Alpha', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'loss/LossPi', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'loss/LossQ1', average_only=True)
+                        self.logger.log_tabular(tot_steps, 'loss/LossQ2', average_only=True)
                         if self.args.alpha < 0:
-                            self.logger.log_tabular(tot_steps, 'LossAlpha', average_only=True)
+                            self.logger.log_tabular(tot_steps, 'loss/LossAlpha', average_only=True)
                         self.logger.log_tabular(tot_steps, 'Time', time.time() - start_time)
                         self.logger.dump_tabular()
                     break
