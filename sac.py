@@ -136,7 +136,7 @@ class SAC():
         if self.args.her_k > 0:
             obs = np.concatenate([obs, self.env_target], axis=0)
         pi, mu, _ = self.main_net.policy(torch.Tensor(obs).to(self.device).unsqueeze(dim=0))
-        action = mu.detach().cpu().numpy()[0] if deterministic else mu.detach().cpu().numpy()[0]
+        action = mu.detach().cpu().numpy()[0] if deterministic else pi.detach().cpu().numpy()[0]
         return action
 
     def test_agent(self, n=10):
