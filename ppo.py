@@ -84,7 +84,7 @@ class PPO():
         self.device = torch.device("cuda" if not args.no_cuda else "cpu")
         self.render_enabled = True
         self.renderSpin = None
-        self.logger = logx.EpochLogger()
+        self.logger = logx.EpochLogger(output_dir=utils.get_log_dir(args))
 
         if window is not None:
             self.setup_ui(window)
@@ -155,7 +155,7 @@ class PPO():
             if kl > 1.5 * self.args.target_kl:
                 self.logger.log('Early stopping at step %d due to reaching max kl.' % i)
                 break
-        self.logger.store(StopIter=i)
+        self.logger.store(train_StopIter=i)
 
         # Value function learning
         # MSE of the value function and the returns
@@ -175,13 +175,13 @@ class PPO():
         v_loss_new = F.mse_loss(v, ret)
         kl = (logp_old - logp).mean()
         self.logger.store(
-                LossPi=pi_loss_new,
-                LossV=v_loss_old,
-                KL=kl,
-                Entropy=entropy_est,
-                ClipFrac=clipped_info,
-                DeltaLossPi=(pi_loss_new - pi_loss_old),
-                DeltaLossV=(v_loss_old - v_loss_old))
+                loss_LossPi=pi_loss_new,
+                loss_LossV=v_loss_old,
+                metrics_KL=kl,
+                metrics_Entropy=entropy_est,
+                train_ClipFrac=clipped_info,
+                loss_DeltaLossPi=(pi_loss_new - pi_loss_old),
+                loss_DeltaLossV=(v_loss_new - v_loss_old))
 
     def train(self):
         self.logger.save_config({"args:": self.args})
@@ -208,7 +208,7 @@ class PPO():
 
                 # Save and log
                 buffer.store(obs, action.detach().cpu().numpy(), reward, v_t.item(), logp_t.detach().cpu().numpy())
-                self.logger.store(VVals=v_t)
+                self.logger.store(vals_VVals=v_t)
 
                 obs, reward, done, _ = self.env.step(action.detach().cpu().numpy()[0])
                 episode_ret += reward
@@ -235,7 +235,7 @@ class PPO():
                         self.update_net(buffer.get())
                         self.actor_critic.eval()
                     if terminal:
-                        self.logger.store(EpRet=episode_ret, EpLen=episode_len)
+                        self.logger.store(train_EpRet=episode_ret, train_EpLen=episode_len)
                     obs, reward, done, episode_ret, episode_len = self.env.reset(), 0, False, 0, 0
                     break
 
@@ -244,21 +244,21 @@ class PPO():
                 pass
 
             # Log info about epoch
-            self.logger.log_tabular(tot_steps, 'Epoch', epoch)
-            self.logger.log_tabular(tot_steps, 'EpRet', with_min_and_max=True)
-            self.logger.log_tabular(tot_steps, 'EpLen', average_only=True)
-            self.logger.log_tabular(tot_steps, 'VVals', with_min_and_max=True)
+            self.logger.log_tabular(tot_steps, 'train/Epoch', epoch)
+            self.logger.log_tabular(tot_steps, 'train/EpRet', with_min_and_max=True)
+            self.logger.log_tabular(tot_steps, 'train/EpLen', average_only=True)
+            self.logger.log_tabular(tot_steps, 'vals/VVals', with_min_and_max=True)
             # self.logger.log_tabular('TotalEnvInteracts', (epoch+1)*steps_per_epoch)
             if epoch % self.args.batch_size == 0:
-                self.logger.log_tabular(tot_steps, 'LossPi', average_only=True)
-                self.logger.log_tabular(tot_steps, 'LossV', average_only=True)
-                self.logger.log_tabular(tot_steps, 'DeltaLossPi', average_only=True)
-                self.logger.log_tabular(tot_steps, 'DeltaLossV', average_only=True)
-                self.logger.log_tabular(tot_steps, 'Entropy', average_only=True)
-                self.logger.log_tabular(tot_steps, 'KL', average_only=True)
-                self.logger.log_tabular(tot_steps, 'ClipFrac', average_only=True)
-                self.logger.log_tabular(tot_steps, 'StopIter', average_only=True)
-            self.logger.log_tabular(tot_steps, 'Time', time.time() - start_time)
+                self.logger.log_tabular(tot_steps, 'loss/LossPi', average_only=True)
+                self.logger.log_tabular(tot_steps, 'loss/LossV', average_only=True)
+                self.logger.log_tabular(tot_steps, 'loss/DeltaLossPi', average_only=True)
+                self.logger.log_tabular(tot_steps, 'loss/DeltaLossV', average_only=True)
+                self.logger.log_tabular(tot_steps, 'metrics/Entropy', average_only=True)
+                self.logger.log_tabular(tot_steps, 'metrics/KL', average_only=True)
+                self.logger.log_tabular(tot_steps, 'train/ClipFrac', average_only=True)
+                self.logger.log_tabular(tot_steps, 'train/StopIter', average_only=True)
+            self.logger.log_tabular(tot_steps, 'train/Time', time.time() - start_time)
             self.logger.dump_tabular()
 
     def eval(self):
