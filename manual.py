@@ -51,7 +51,7 @@ class ManualControl():
                 if not self.window.isVisible():
                     break
                 time.sleep(self.window.renderSpin.value())
-                print("Action: %d, Reward: %d, ep_reward: %d" % (action, reward, ep_reward))
+                print("State: {}, Action: {}, Reward: {}, ep_reward: {}".format(state, action, reward, ep_reward))
                 if done:
                     break
             if not self.window.isVisible():
