@@ -21,9 +21,9 @@ def parse_args(parser):
     parser.add_argument(
             '--batch_size', type=int, default=10, help='Batch size (how many episodes per batch). default: 10')
     parser.add_argument(
-            '--lr_pi', type=float, default=0.002, help='Learning rate for policy optimizer. (default:0.002)')
+            '--lr_pi', type=float, default=3e-4, help='Learning rate for policy optimizer. (default:0.002)')
     parser.add_argument(
-            '--lr_V', type=float, default=0.0024, help='Learning rate for value function optimizer. (default:0.0024)')
+            '--lr_V', type=float, default=1.5e-4, help='Learning rate for value function optimizer. (default:0.0024)')
     parser.add_argument(
             '--train_v_iters',
             type=int,
@@ -32,8 +32,8 @@ def parse_args(parser):
     parser.add_argument(
             "--gae_lambda",
             type=float,
-            default=0.97,
-            help="Lambda for GAE-Lambda. (Always between 0 and 1, close to 1., default: 0.97)")
+            default=0.95,
+            help="Lambda for GAE-Lambda. (Always between 0 and 1, close to 1., default: 0.95)")
     parser.add_argument(
             "--gae_gamma", type=float, default=0.999, help="Discount factor. (Always between 0 and 1., default: 0.999")
     parser.add_argument(
@@ -248,7 +248,7 @@ class PPO():
             self.logger.log_tabular(tot_steps, 'train/EpRet', with_min_and_max=True)
             self.logger.log_tabular(tot_steps, 'train/EpLen', average_only=True)
             self.logger.log_tabular(tot_steps, 'vals/VVals', with_min_and_max=True)
-            # self.logger.log_tabular('TotalEnvInteracts', (epoch+1)*steps_per_epoch)
+            self.logger.log_tabular(tot_steps, 'TotalEnvInteracts', tot_steps)
             if epoch % self.args.batch_size == 0:
                 self.logger.log_tabular(tot_steps, 'loss/LossPi', average_only=True)
                 self.logger.log_tabular(tot_steps, 'loss/LossV', average_only=True)
@@ -471,7 +471,7 @@ class ActorCritic(nn.Module):
     def __init__(self,
                  observation_space_shape,
                  action_space,
-                 hidden_sizes=[128, 64],
+                 hidden_sizes=[64, 64],
                  activation=torch.tanh,
                  output_activation=None,
                  policy=None):

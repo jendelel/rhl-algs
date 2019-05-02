@@ -194,6 +194,7 @@ class RCPPO():
                 loss_LossV=v_loss_old,
                 metrics_KL=kl,
                 metrics_Entropy=entropy_est,
+                metrics_Lambda=self.const_lambda,
                 train_ClipFrac=clipped_info,
                 loss_DeltaLossPi=(pi_loss_new - pi_loss_old),
                 loss_DeltaLossV=(v_loss_new - v_loss_old))
@@ -214,7 +215,7 @@ class RCPPO():
         self.logger.log('\nNumber of parameters: \t pi: %d, \t v: %d\n' % var_counts)
 
         start_time = time.time()
-        obs, reward, done, episode_ret, episode_len = self.env.reset(), 0, False, 0, 0
+        obs, reward, done, episode_ret, episode_len, episode_const = self.env.reset(), 0, False, 0, 0, []
         for epoch in range(0, self.args.epochs):
             # Set the network in eval mode (e.g. Dropout, BatchNorm etc.)
             self.actor_critic.eval()
@@ -223,12 +224,13 @@ class RCPPO():
 
                 # Save and log
                 assert self.args.env.startswith("Lunar")
-                constraint = np.abs(obs[4])
+                constraint = np.logical_and(obs[3] >= 0.5, obs[2] <= 0.4)
                 buffer.store(obs, action.detach().cpu().numpy(), reward, v_t.item(), logp_t.detach().cpu().numpy(), constraint)
                 self.logger.store(vals_VVals=v_t)
 
                 obs, reward, done, _ = self.env.step(action.detach().cpu().numpy()[0])
                 episode_ret += reward
+                episode_const.append(constraint)
                 episode_len += 1
                 tot_steps += 1
 
@@ -246,7 +248,7 @@ class RCPPO():
                     last_val = reward if done else self.actor_critic.value_function(
                             torch.Tensor(obs).to(self.device).unsqueeze(dim=0)).item()
                     assert self.args.env.startswith("Lunar")
-                    last_constraint = np.abs(obs[4])
+                    last_constraint = np.logical_and(obs[3] >= 0.5, obs[2] <= 0.4)
                     buffer.finish_path(last_val=last_val, last_const=last_constraint, const_lambda=self.const_lambda.item())
 
                     if epoch % self.args.batch_size == 0:
@@ -254,8 +256,8 @@ class RCPPO():
                         self.update_net(buffer.get())
                         self.actor_critic.eval()
                     if terminal:
-                        self.logger.store(train_EpRet=episode_ret, train_EpLen=episode_len)
-                    obs, reward, done, episode_ret, episode_len = self.env.reset(), 0, False, 0, 0
+                        self.logger.store(train_EpRet=episode_ret, train_EpLen=episode_len, train_EpConst=np.mean(episode_const))
+                    obs, reward, done, episode_ret, episode_len, episode_const = self.env.reset(), 0, False, 0, 0, []
                     break
 
             if (epoch % self.args.save_freq == 0) or (epoch == self.args.epochs - 1):
@@ -266,6 +268,7 @@ class RCPPO():
             self.logger.log_tabular(tot_steps, 'train/Epoch', epoch)
             self.logger.log_tabular(tot_steps, 'train/EpRet', with_min_and_max=True)
             self.logger.log_tabular(tot_steps, 'train/EpLen', average_only=True)
+            self.logger.log_tabular(tot_steps, 'train/EpConst', with_min_and_max=True)
             self.logger.log_tabular(tot_steps, 'vals/VVals', with_min_and_max=True)
             self.logger.log_tabular(tot_steps, 'TotalEnvInteracts', tot_steps)
             if epoch % self.args.batch_size == 0:
@@ -273,6 +276,7 @@ class RCPPO():
                 self.logger.log_tabular(tot_steps, 'loss/LossV', average_only=True)
                 self.logger.log_tabular(tot_steps, 'loss/DeltaLossPi', average_only=True)
                 self.logger.log_tabular(tot_steps, 'loss/DeltaLossV', average_only=True)
+                self.logger.log_tabular(tot_steps, 'metrics/Lambda', average_only=True)
                 self.logger.log_tabular(tot_steps, 'metrics/Entropy', average_only=True)
                 self.logger.log_tabular(tot_steps, 'metrics/KL', average_only=True)
                 self.logger.log_tabular(tot_steps, 'train/ClipFrac', average_only=True)
