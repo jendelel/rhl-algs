@@ -39,6 +39,8 @@ class UIRenderer(gym.Wrapper):
 
 def make_env(env_name, viewer, alg_name="random_alg", record=False):
     env = gym.make(env_name)
+    if isinstance(env.observation_space, gym.spaces.dict_space.Dict):
+        env = gym.wrappers.FlattenDictWrapper(env, dict_keys=['observation', 'desired_goal'])
     env = gym.wrappers.Monitor(env, "/tmp/{}_{}_videos".format(env_name, alg_name), video_callable=lambda x: True)
     env = UIRenderer(env, viewer)
     env.recoding_enabled = (record is True)

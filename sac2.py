@@ -83,21 +83,21 @@ class SAC():
         if window is not None:
             self.setup_ui(window)
 
-        self.obs_dim = self.env.unwrapped.observation_space.shape[0]
+        self.obs_dim = self.env.observation_space.shape[0]
         if self.args.her_k > 0 and self.args.env.startswith("MountainCar"):
             self.her_goal_f = lambda obs: [obs[0]]
             self.env_target = [self.env.unwrapped.goal_position]
-            self.obs_dim = self.env.unwrapped.observation_space.shape[0] + len(self.env_target)
+            self.obs_dim = self.env.observation_space.shape[0] + len(self.env_target)
         elif self.args.her_k > 0 and self.args.env.startswith("LunarLander"):
             self.her_goal_f = lambda obs: obs
             self.env_target = np.array([0, 0, 0, 0, 1, 0], dtype=np.float32)
-            self.obs_dim = self.env.unwrapped.observation_space.shape[0] * 2
+            self.obs_dim = self.env.observation_space.shape[0] * 2
         elif self.args.her_k > 0:
             raise ValueError("Can't use her for {}. Please setup the target state!".format(self.args.env))
 
         if self.args.alpha < 0:
             print("Using trainable alpha")
-            self.target_entropy = -torch.prod(torch.Tensor(self.env.unwrapped.action_space.shape).to(
+            self.target_entropy = -torch.prod(torch.Tensor(self.env.action_space.shape).to(
                     self.device)).item()
             self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
             self.optimizer_alpha = torch.optim.Adam([self.log_alpha], lr=self.args.lr)
@@ -105,11 +105,11 @@ class SAC():
             self.alpha = self.args.alpha
 
         self.main_net = ActorCritic(
-                in_features=self.obs_dim, action_space=self.env.unwrapped.action_space).to(device=self.device)
+                in_features=self.obs_dim, action_space=self.env.action_space).to(device=self.device)
 
         # Only critique (Q-networks) from the target network is used!
         self.target_net = ActorCritic(
-                in_features=self.obs_dim, action_space=self.env.unwrapped.action_space).to(device=self.device)
+                in_features=self.obs_dim, action_space=self.env.action_space).to(device=self.device)
 
         self.optimizer_pi = torch.optim.Adam(self.main_net.policy.parameters(), lr=args.lr)
         self.optimizer_q = torch.optim.Adam(
@@ -230,10 +230,10 @@ class SAC():
         self.logger.save_config({"args:": self.args})
         if self.args.her_k > 0:
             buffer = ReplayBuffer(
-                    obs_dim=self.obs_dim, act_dim=self.env.unwrapped.action_space.shape[0], size=self.args.replay_size)
+                    obs_dim=self.obs_dim, act_dim=self.env.action_space.shape[0], size=self.args.replay_size)
         else:
             buffer = ReplayBuffer(
-                    obs_dim=self.obs_dim, act_dim=self.env.unwrapped.action_space.shape[0], size=self.args.replay_size)
+                    obs_dim=self.obs_dim, act_dim=self.env.action_space.shape[0], size=self.args.replay_size)
 
         var_counts = tuple(
                 utils.count_parameters(module)
