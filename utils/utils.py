@@ -9,7 +9,7 @@ def count_parameters(module):
 
 def get_log_dir(args):
     return os.path.join(
-            "runs", "experiments", "{}-{}-{}".format(args.env, args.alg,
+            "runs", "experiments", "{}/{}/{}".format(args.env, args.alg,
                                                      datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")))
 
 
